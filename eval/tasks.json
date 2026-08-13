@@ -6,6 +6,8 @@
     {"id": "math-04", "category": "math", "task": "calculate 2 ** 20", "expected": "1048576"},
     {"id": "math-05", "category": "math", "task": "calculate sqrt(144) * 3 + 7", "expected": "43"},
     {"id": "math-06", "category": "math", "task": "calculate 987654321 * 123456789", "expected": "121932631112635269"},
+    {"id": "math-07", "category": "math", "task": "calculate (2 + 3) ** 2 * (10 - 4)", "expected": "150"},
+    {"id": "math-08", "category": "math", "task": "calculate 999999 * 999999 + 123456", "expected": "999998123457"},
 
     {"id": "search-01", "category": "search", "task": "search the corpus for what react is", "must_contain": ["interleaves", "reasoning"]},
     {"id": "search-02", "category": "search", "task": "search the corpus for compaction", "must_contain": ["compaction", "summarizes"]},
@@ -13,6 +15,8 @@
     {"id": "search-04", "category": "search", "task": "search the corpus for policy", "must_contain": ["policy", "execution strategy"]},
     {"id": "search-05", "category": "search", "task": "search the corpus for the calculator tool", "must_contain": ["calculator", "arithmetic"]},
     {"id": "search-06", "category": "search", "task": "search the corpus for pi", "must_contain": ["coding agent", "runtime"]},
+    {"id": "search-07", "category": "search", "task": "search the corpus for openai and pi", "must_contain": ["openai", "runtime"]},
+    {"id": "search-08", "category": "search", "task": "search the corpus for calculator and compaction", "must_contain": ["calculator", "compaction"]},
 
     {"id": "direct-01", "category": "direct", "task": "what is 2 + 2", "must_contain": ["4"]},
     {"id": "direct-02", "category": "direct", "task": "what is the sum of numbers 1 through 10", "must_contain": ["55"]},
@@ -20,12 +24,16 @@
     {"id": "direct-04", "category": "direct", "task": "what color is the sky on a clear day", "must_contain": ["blue"]},
     {"id": "direct-05", "category": "direct", "task": "how many sides does a triangle have", "must_contain": ["3"]},
     {"id": "direct-06", "category": "direct", "task": "what is 10 divided by 2", "must_contain": ["5"]},
+    {"id": "direct-07", "category": "direct", "task": "what is 7 * 8", "must_contain": ["56"]},
+    {"id": "direct-08", "category": "direct", "task": "what is 12 * 12", "must_contain": ["144"]},
 
     {"id": "subagent-01", "category": "subagent", "task": "compare react and subagent execution strategies", "must_contain": ["react", "subagent"]},
     {"id": "subagent-02", "category": "subagent", "task": "write a short report comparing the search and calculator tools", "must_contain": ["search", "calculator"]},
     {"id": "subagent-03", "category": "subagent", "task": "summarize the differences between direct and react strategies", "must_contain": ["direct", "react"]},
     {"id": "subagent-04", "category": "subagent", "task": "compare direct execution with subagent delegation", "must_contain": ["direct", "subagent"]},
     {"id": "subagent-05", "category": "subagent", "task": "write a plan to evaluate math and search tasks", "must_contain": ["math", "search"]},
-    {"id": "subagent-06", "category": "subagent", "task": "compare the calculator and compaction tools", "must_contain": ["calculator", "compaction"]}
+    {"id": "subagent-06", "category": "subagent", "task": "compare the calculator and compaction tools", "must_contain": ["calculator", "compaction"]},
+    {"id": "subagent-07", "category": "subagent", "task": "write a report on react, compaction, and subagent strategies", "must_contain": ["react", "compaction", "subagent"]},
+    {"id": "subagent-08", "category": "subagent", "task": "write a report covering the calculator tool, the search corpus, and the policy layer", "must_contain": ["calculator", "search", "policy"]}
   ]
 }

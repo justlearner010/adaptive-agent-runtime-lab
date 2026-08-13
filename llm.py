@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import time
 from typing import Any
 
@@ -21,6 +22,13 @@ from openai import OpenAI
 
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
+
+_TRANSIENT_STATUS = {429, 500, 502, 503, 504}
+
+
+def _is_transient(exc: Exception) -> bool:
+    """True for rate-limit / server errors that are safe to retry."""
+    return getattr(exc, "status_code", None) in _TRANSIENT_STATUS
 
 
 class LLMError(RuntimeError):
@@ -47,21 +55,32 @@ class LLM:
         self,
         messages: list[dict[str, str]],
         max_tokens: int | None = None,
-    ) -> str:
-        """Single non-streaming completion. Returns assistant text."""
+        retries: int = 3,
+    ) -> tuple[str, dict[str, Any]]:
+        """Single non-streaming completion. Returns (text, meta).
+
+        Transient provider errors (429 / 5xx) are retried with exponential
+        backoff; other errors surface immediately.
+        """
         start = time.monotonic()
-        try:
-            resp = self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                max_tokens=max_tokens,
-            )
-        except Exception as exc:  # surface provider errors as LLMError
-            raise LLMError(f"chat completion failed: {exc}") from exc
-        text = resp.choices[0].message.content or ""
-        usage = resp.usage
-        tokens = usage.total_tokens if usage else None
-        return text, {"ms": round((time.monotonic() - start) * 1000), "tokens": tokens}
+        last_exc: Exception | None = None
+        for attempt in range(retries + 1):
+            try:
+                resp = self._client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                )
+                text = resp.choices[0].message.content or ""
+                usage = resp.usage
+                tokens = usage.total_tokens if usage else None
+                return text, {"ms": round((time.monotonic() - start) * 1000), "tokens": tokens}
+            except Exception as exc:  # noqa: BLE001 - surface provider errors as LLMError
+                last_exc = exc
+                if not _is_transient(exc) or attempt >= retries:
+                    break
+                time.sleep(min(2**attempt, 8) + random.uniform(0, 0.5))
+        raise LLMError(f"chat completion failed: {last_exc}") from last_exc
 
     def chat_json(
         self,

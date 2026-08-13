@@ -77,3 +77,62 @@ def test_valid_json_first_try_no_retry():
 
     assert parsed == {"ok": True}
     assert completions.calls == 1
+
+
+# --- transient error retry (429/5xx) ---
+
+class _StatusError(Exception):
+    def __init__(self, status: int) -> None:
+        self.status_code = status
+        super().__init__(f"status {status}")
+
+
+class _RaisingCompletions:
+    def __init__(self, fail_status: int, fail_times: int, content: str = "ok") -> None:
+        self._fail_status = fail_status
+        self._fail_left = fail_times
+        self._content = content
+        self.calls = 0
+
+    def create(self, **kwargs):
+        self.calls += 1
+        if self._fail_left > 0:
+            self._fail_left -= 1
+            raise _StatusError(self._fail_status)
+        return _Resp(self._content)
+
+
+class _RaisingClient:
+    def __init__(self, completions: _RaisingCompletions) -> None:
+        self.chat = _Chat(completions)
+
+
+def test_transient_429_is_retried():
+    llm = LLM(api_key="test-key")
+    comp = _RaisingCompletions(fail_status=429, fail_times=2)
+    llm._client = _RaisingClient(comp)  # type: ignore[attr-defined]
+
+    text, _ = llm.chat([{"role": "user", "content": "hi"}], retries=3)
+
+    assert text == "ok"
+    assert comp.calls == 3
+
+
+def test_non_transient_error_not_retried():
+    llm = LLM(api_key="test-key")
+    comp = _RaisingCompletions(fail_status=401, fail_times=99)
+    llm._client = _RaisingClient(comp)  # type: ignore[attr-defined]
+
+    with pytest.raises(LLMError):
+        llm.chat([{"role": "user", "content": "hi"}], retries=3)
+    assert comp.calls == 1
+
+
+def test_retries_exhausted_raises():
+    llm = LLM(api_key="test-key")
+    comp = _RaisingCompletions(fail_status=503, fail_times=99)
+    llm._client = _RaisingClient(comp)  # type: ignore[attr-defined]
+
+    with pytest.raises(LLMError):
+        llm.chat([{"role": "user", "content": "hi"}], retries=2)
+    assert comp.calls == 3
