@@ -67,21 +67,39 @@ class LLM:
         self,
         messages: list[dict[str, str]],
         max_tokens: int | None = None,
+        retries: int = 1,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Completion with a JSON-object constraint. Returns (parsed, meta)."""
+        """Completion with a JSON-object constraint. Returns (parsed, meta).
+
+        On invalid/truncated JSON, retries once with a corrective prompt
+        that re-feeds the failed output back to the model.
+        """
         constrained = [*messages, {"role": "user", "content": "Return only valid JSON."}]
         text, meta = self.chat(constrained, max_tokens=max_tokens)
-        text = text.strip()
-        # strip markdown fences if the model wraps the JSON
-        if text.startswith("```"):
-            text = text.split("```", 2)[1]
-            if text.startswith("json"):
-                text = text[4:]
-            text = text.strip()
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise LLMError(f"model returned non-JSON: {text[:200]!r}") from exc
-        if not isinstance(parsed, dict):
-            raise LLMError(f"model returned non-object JSON: {parsed!r}")
-        return parsed, meta
+        for attempt in range(retries + 1):
+            cleaned = text.strip()
+            # strip markdown fences if the model wraps the JSON
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("```", 2)[1]
+                if cleaned.startswith("json"):
+                    cleaned = cleaned[4:]
+                cleaned = cleaned.strip()
+            try:
+                parsed = json.loads(cleaned)
+            except json.JSONDecodeError as exc:
+                if attempt >= retries:
+                    raise LLMError(f"model returned non-JSON: {cleaned[:200]!r}") from exc
+                constrained = [
+                    *messages,
+                    {"role": "assistant", "content": text},
+                    {"role": "user", "content": "Your previous output was truncated or not valid JSON. "
+                                                  "Return ONLY valid JSON, complete."},
+                ]
+                text, meta = self.chat(constrained, max_tokens=max_tokens)
+                continue
+            if not isinstance(parsed, dict):
+                if attempt >= retries:
+                    raise LLMError(f"model returned non-object JSON: {parsed!r}")
+                continue
+            return parsed, meta
+        raise LLMError("model returned non-object JSON")
