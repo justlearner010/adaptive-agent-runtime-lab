@@ -44,7 +44,7 @@ class SubagentExecutor:
                 {"role": "system", "content": PLANNER_PROMPT},
                 {"role": "user", "content": task},
             ],
-            max_tokens=400,
+            max_tokens=800,
         )
         trace.record("llm_call", role="subagent/planner", **meta)
         subtasks = plan.get("subtasks", [])
