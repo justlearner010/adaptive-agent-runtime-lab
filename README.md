@@ -25,6 +25,9 @@ python main.py "who is the president of the usa" --offline   # 无 key 也能跑
 python main.py "..." --json             # 机器可读输出（含完整 trace）
 ```
 
+也可以用项目根目录的 `.env` 文件（复制 `.env.example` 改好即可，已 gitignore）：
+程序启动时自动加载，已存在的环境变量优先（`.env` 不覆盖手动 export 的值）。
+
 配置：`OPENAI_API_KEY` / `OPENAI_BASE_URL`（默认 api.openai.com/v1）/ `OPENAI_MODEL`（默认 gpt-4o-mini）。
 换 DeepSeek/Moonshot/本地 vLLM 只需改 base_url + model。
 

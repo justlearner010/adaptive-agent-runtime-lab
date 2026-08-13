@@ -15,6 +15,7 @@ import argparse
 import json
 import sys
 
+from env import load_dotenv
 from llm import LLM, LLMError
 from router import Router
 from task_analyzer import HybridPolicy, RulePolicy
@@ -34,6 +35,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    load_dotenv()  # optional: read OPENAI_* from project .env, env vars still win
     trace = Trace()
 
     try:
