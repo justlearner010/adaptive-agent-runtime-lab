@@ -60,7 +60,7 @@ class SearchTool:
             key=lambda item: item[0],
             reverse=True,
         )
-        hits = [(title, score) for title, score in ranked if score > 0][:top_k]
+        hits = [(title, score) for score, title in ranked if score > 0][:top_k]
         if not hits:
             return "No results found."
         return "\n".join(f"- {title}: {text}" for title, text in [(t, dict(self.corpus)[t]) for t, _ in hits])
