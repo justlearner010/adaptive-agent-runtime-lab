@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 
+from llm import LLMError
 from . import Answer
 from .react import ReactExecutor
 
@@ -39,15 +40,22 @@ class SubagentExecutor:
 
     def execute(self, task: str, llm, trace) -> Answer:
         # 1) decompose
-        plan, meta = llm.chat_json(
-            [
-                {"role": "system", "content": PLANNER_PROMPT},
-                {"role": "user", "content": task},
-            ],
-            max_tokens=800,
-        )
-        trace.record("llm_call", role="subagent/planner", **meta)
-        subtasks = plan.get("subtasks", [])
+        try:
+            plan, meta = llm.chat_json(
+                [
+                    {"role": "system", "content": PLANNER_PROMPT},
+                    {"role": "user", "content": task},
+                ],
+                max_tokens=800,
+            )
+            trace.record("llm_call", role="subagent/planner", **meta)
+            subtasks = plan.get("subtasks", [])
+        except LLMError:
+            # planner refused/returned invalid JSON -> degrade to self-delegation
+            trace.record("llm_call", role="subagent/planner", error="planner failed, falling back to single subtask")
+            subtasks = []
+        if not isinstance(subtasks, list) or not subtasks:
+            subtasks = [{"title": "main", "prompt": task}]
         if not isinstance(subtasks, list) or not subtasks:
             subtasks = [{"title": "main", "prompt": task}]
 
