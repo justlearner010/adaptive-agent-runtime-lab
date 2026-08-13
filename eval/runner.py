@@ -48,17 +48,26 @@ def keyword_correct(answer: str, terms: list[str]) -> bool:
 
 
 def subagent_correct(answer: str, events: list[dict], terms: list[str] | None) -> bool:
+    """Structural check: the subagent strategy really decomposed the task.
+
+    Only meaningful for subagent-strategy runs; other strategies are judged
+    on the answer alone (see is_correct).
+    """
     spawns = [e for e in events if e["kind"] == "subagent"]
     if len(spawns) < 2 or not answer.strip():
         return False
     return keyword_correct(answer, terms) if terms else True
 
 
-def is_correct(task: dict, answer: Answer, events: list[dict]) -> bool:
+def is_correct(task: dict, answer: Answer, events: list[dict], strategy: str) -> bool:
     if task["category"] == "math":
         return math_correct(answer.text, task["expected"])
     if task["category"] == "subagent":
-        return subagent_correct(answer.text, events, task.get("must_contain"))
+        # task solved iff the answer covers the required topics; the structural
+        # check (>=2 spawns) applies only to the subagent strategy itself
+        if strategy == "subagent":
+            return subagent_correct(answer.text, events, task.get("must_contain"))
+        return bool(answer.text.strip()) and keyword_correct(answer.text, task.get("must_contain", []))
     return keyword_correct(answer.text, task.get("must_contain", []))
 
 
@@ -73,6 +82,7 @@ def metrics_from_trace(events: list[dict]) -> dict[str, Any]:
         "latency_ms": sum(e["data"].get("ms") or 0 for e in llm_events),
         "tool_calls": len(tool_events),
         "tool_failures": sum(1 for e in tool_events if not e["data"].get("ok")),
+        "spawns": sum(1 for e in events if e["kind"] == "subagent"),
     }
 
 
@@ -88,10 +98,16 @@ def _empty_run(error: str) -> dict[str, Any]:
         "latency_ms": 0,
         "tool_calls": 0,
         "tool_failures": 0,
+        "spawns": 0,
     }
 
 
-def run_eval(llm: LLM, tasks: list[dict], strategies: list[str]) -> dict[str, Any]:
+def run_eval(
+    llm: LLM,
+    tasks: list[dict],
+    strategies: list[str],
+    on_task=None,
+) -> dict[str, Any]:
     results: dict[str, Any] = {"tasks": []}
     for task in tasks:
         entry: dict[str, Any] = {
@@ -109,7 +125,7 @@ def run_eval(llm: LLM, tasks: list[dict], strategies: list[str]) -> dict[str, An
                 _, answer = run_pipeline(task["task"], llm, force_strategy=strategy, trace=trace)
                 events = trace.to_dict()
                 entry["runs"][strategy] = {
-                    "correct": is_correct(task, answer, events),
+                    "correct": is_correct(task, answer, events, strategy),
                     "answer": answer.text[:300],
                     "wall_ms": round((time.monotonic() - start) * 1000),
                     **metrics_from_trace(events),
@@ -126,6 +142,8 @@ def run_eval(llm: LLM, tasks: list[dict], strategies: list[str]) -> dict[str, An
         rule = RulePolicy().analyze(task["task"])
         entry["rule_policy"] = {"strategy": rule.strategy, "source": "rule"}
         results["tasks"].append(entry)
+        if on_task:
+            on_task(task)
     return results
 
 
@@ -161,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
     strategies = [s.strip() for s in args.strategies.split(",") if s.strip()]
 
     print(f"running {len(tasks)} tasks x {len(strategies)} strategies ...")
-    results = run_eval(llm, tasks, strategies)
+    results = run_eval(llm, tasks, strategies, on_task=lambda t: print(f"  done: {t['id']} ({t['category']})", flush=True))
     path = save_results(results)
     print(f"results -> {path}")
 

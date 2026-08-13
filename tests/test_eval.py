@@ -46,17 +46,22 @@ def test_is_correct_by_category():
     from executors import Answer
 
     math_task = {"category": "math", "expected": "48"}
-    assert is_correct(math_task, Answer(text="48", strategy="x"), [])
+    assert is_correct(math_task, Answer(text="48", strategy="x"), [], "direct")
 
     search_task = {"category": "search", "must_contain": ["interleaves"]}
-    assert is_correct(search_task, Answer(text="ReAct interleaves reasoning", strategy="x"), [])
+    assert is_correct(search_task, Answer(text="ReAct interleaves reasoning", strategy="x"), [], "react")
 
     direct_task = {"category": "direct", "must_contain": ["paris"]}
-    assert is_correct(direct_task, Answer(text="paris", strategy="x"), [])
+    assert is_correct(direct_task, Answer(text="paris", strategy="x"), [], "direct")
 
     sub_task = {"category": "subagent", "must_contain": ["react"]}
     events = [{"kind": "subagent", "data": {}}, {"kind": "subagent", "data": {}}]
-    assert is_correct(sub_task, Answer(text="react and subagent", strategy="x"), events)
+    # subagent strategy run: needs >=2 spawns + keywords
+    assert is_correct(sub_task, Answer(text="react and subagent", strategy="subagent"), events, "subagent")
+    assert not is_correct(sub_task, Answer(text="react and subagent", strategy="subagent"), [], "subagent")
+    # direct/react run on the same task: judged on the answer alone
+    assert is_correct(sub_task, Answer(text="react and subagent", strategy="direct"), [], "direct")
+    assert not is_correct(sub_task, Answer(text="nothing relevant", strategy="direct"), [], "direct")
 
 
 # --- metrics ---
@@ -67,10 +72,11 @@ def test_metrics_from_trace():
         {"kind": "tool_call", "data": {"ok": True, "ms": 3}},
         {"kind": "tool_call", "data": {"ok": False, "ms": 1}},
         {"kind": "llm_call", "data": {"tokens": 50, "ms": 300}},
+        {"kind": "subagent", "data": {}},
         {"kind": "dispatch", "data": {}},
     ]
     m = metrics_from_trace(events)
-    assert m == {"llm_calls": 2, "tokens": 150, "latency_ms": 800, "tool_calls": 2, "tool_failures": 1}
+    assert m == {"llm_calls": 2, "tokens": 150, "latency_ms": 800, "tool_calls": 2, "tool_failures": 1, "spawns": 1}
 
 
 # --- report aggregation ---

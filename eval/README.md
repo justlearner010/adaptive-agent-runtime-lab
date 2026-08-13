@@ -18,9 +18,10 @@ python -m eval.runner --strategies react,direct
 
 ## 指标定义
 
-- `correct`：math 用数值相等（容忍千分位）；search/direct 用 `must_contain` 关键词；subagent 要求 >=2 次 spawn 且回答非空（可配关键词）
+- `correct`：math 用数值相等（容忍千分位）；search/direct 用 `must_contain` 关键词；subagent 类任务按回答关键词判定，其中 **subagent 策略的运行**额外要求 >=2 次 spawn（结构检查，验证真的分解了），其他策略只看答案本身
 - `llm_calls` / `tokens` / `latency_ms`：从 trace 的 llm_call 事件聚合
 - `tool_calls` / `tool_failures`：从 trace 的 tool_call 事件聚合
+- `spawns`：subagent 分解出的子任务数（机制保真度指标）
 - `optimal`：任务所有正确策略中 llm_calls 最少者（并列取 token 少）
 - 三策略全错的任务列为"评测集问题"（任务设计或工具问题），不计入一致率
 

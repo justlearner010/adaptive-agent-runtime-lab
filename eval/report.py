@@ -45,7 +45,7 @@ def accuracy_table(results: dict[str, Any]) -> list[str]:
 def cost_table(results: dict[str, Any]) -> list[str]:
     tasks = results["tasks"]
     categories = sorted({t["category"] for t in tasks})
-    lines = ["## 平均成本（按任务类别 x 策略）", "", "| category | strategy | llm_calls | tokens | latency_ms |", "|---|---|---|---|---|"]
+    lines = ["## 平均成本（按任务类别 x 策略）", "", "| category | strategy | llm_calls | tokens | latency_ms | spawns |", "|---|---|---|---|---|---|"]
     for cat in categories:
         cat_tasks = [t for t in tasks if t["category"] == cat]
         for strategy in STRATEGIES:
@@ -53,7 +53,7 @@ def cost_table(results: dict[str, Any]) -> list[str]:
             if not runs:
                 continue
             avg = lambda key: sum(r.get(key, 0) for r in runs) // len(runs)  # noqa: E731
-            lines.append(f"| {cat} | {strategy} | {avg('llm_calls')} | {avg('tokens')} | {avg('latency_ms')} |")
+            lines.append(f"| {cat} | {strategy} | {avg('llm_calls')} | {avg('tokens')} | {avg('latency_ms')} | {avg('spawns')} |")
     return lines
 
 

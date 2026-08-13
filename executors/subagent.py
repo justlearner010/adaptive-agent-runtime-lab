@@ -78,6 +78,10 @@ class SubagentExecutor:
             max_tokens=600,
         )
         trace.record("llm_call", role="subagent/synthesizer", **meta)
+        if not text.strip():
+            # empty synthesis -> fall back to raw worker reports
+            text = "\n\n".join(reports)
+            trace.record("llm_call", role="subagent/synthesizer", error="empty synthesis, fell back to worker reports")
 
         return Answer(
             text=text,
