@@ -52,8 +52,8 @@ def optimal_strategy(entry: dict[str, Any]) -> str | None:
     )
 
 
-def policy_majority(entry: dict[str, Any]) -> str | None:
-    samples = entry.get("policy", {}).get("samples") or []
+def policy_majority(entry: dict[str, Any], variant: str = "p0") -> str | None:
+    samples = entry.get("policy", {}).get(variant, {}).get("samples") or []
     choices = [s.get("strategy") for s in samples if s.get("strategy") not in (None, "error")]
     if not choices:
         return None
@@ -64,8 +64,8 @@ def policy_majority(entry: dict[str, Any]) -> str | None:
     return tied[0] if tied else None
 
 
-def policy_llm_success_rate(entry: dict[str, Any]) -> float | None:
-    samples = entry.get("policy", {}).get("samples") or []
+def policy_llm_success_rate(entry: dict[str, Any], variant: str = "p0") -> float | None:
+    samples = entry.get("policy", {}).get(variant, {}).get("samples") or []
     if not samples:
         return None
     return sum(1 for s in samples if s.get("source") == "llm") / len(samples)
@@ -113,22 +113,42 @@ def cost_table(results: dict[str, Any]) -> list[str]:
     return lines
 
 
-def stability_table(results: dict[str, Any]) -> list[str]:
-    lines = ["## Policy 稳定性（N 次分类）", "", "| id | category | 选择分布 | llm成功率 |", "|---|---|---|---|"]
+def stability_table(results: dict[str, Any], variant: str = "p0") -> list[str]:
+    lines = [f"## Policy 稳定性（N 次分类，prompt 变体 {variant}）", "", "| id | category | 选择分布 | llm成功率 |", "|---|---|---|---|"]
     for t in results["tasks"]:
-        samples = t.get("policy", {}).get("samples") or []
+        samples = t.get("policy", {}).get(variant, {}).get("samples") or []
         choices = [s.get("strategy") for s in samples]
         dist = ", ".join(f"{s}:{choices.count(s)}" for s in STRATEGIES if choices.count(s))
         if not dist:
             dist = "error"
-        success = policy_llm_success_rate(t)
+        success = policy_llm_success_rate(t, variant)
         lines.append(f"| {t['id']} | {t['category']} | {dist} | {f'{success*100:.0f}%' if success is not None else '-'} |")
     return lines
 
 
-def agreement_table(results: dict[str, Any]) -> list[str]:
+def variant_summary_table(results: dict[str, Any]) -> list[str]:
+    """One row per prompt variant: llm success rate + majority-vote agreement."""
+    variants = sorted({v for t in results["tasks"] for v in t.get("policy", {})})
+    lines = ["## Prompt 变体对比（实验 A/B）", "", "| variant | 任务数 | llm成功率(均值) | 多数票一致率 |", "|---|---|---|---|"]
+    for variant in variants:
+        tasks = results["tasks"]
+        successes = [policy_llm_success_rate(t, variant) for t in tasks]
+        successes = [s for s in successes if s is not None]
+        avg = sum(successes) / len(successes) if successes else 0.0
+        agree = total = 0
+        for t in tasks:
+            optimal = optimal_strategy(t)
+            if optimal is None:
+                continue
+            total += 1
+            agree += policy_majority(t, variant) == optimal
+        lines.append(f"| {variant} | {len(tasks)} | {avg*100:.0f}% | {agree}/{total} |")
+    return lines
+
+
+def agreement_table(results: dict[str, Any], variant: str = "p0") -> list[str]:
     tasks = results["tasks"]
-    lines = ["## 策略层质量（多数票 vs 最优策略）", "", "| id | category | optimal | policy(majority) | rule |", "|---|---|---|---|---|"]
+    lines = [f"## 策略层质量（多数票 vs 最优，prompt 变体 {variant}）", "", "| id | category | optimal | policy(majority) | rule |", "|---|---|---|---|---|"]
     agree = {"policy": 0, "rule": 0}
     total = {"policy": 0, "rule": 0}
     unsolved: list[str] = []
@@ -137,7 +157,7 @@ def agreement_table(results: dict[str, Any]) -> list[str]:
         if optimal is None:
             unsolved.append(f"{t['id']} ({t['task'][:40]})")
             continue
-        p_choice = policy_majority(t)
+        p_choice = policy_majority(t, variant)
         r_choice = t.get("rule_policy", {}).get("strategy")
         lines.append(f"| {t['id']} | {t['category']} | {optimal} | {p_choice} | {r_choice} |")
         if p_choice is not None:
@@ -157,14 +177,18 @@ def agreement_table(results: dict[str, Any]) -> list[str]:
 
 
 def render_report(results: dict[str, Any]) -> str:
+    variants = sorted({v for t in results["tasks"] for v in t.get("policy", {})})
+    default = variants[0] if variants else "p0"
     sections = [
         ["# Eval Report", ""],
         accuracy_table(results),
         [""],
         cost_table(results),
         [""],
-        stability_table(results),
+        variant_summary_table(results),
         [""],
-        agreement_table(results),
+        stability_table(results, variant=default),
+        [""],
+        agreement_table(results, variant=default),
     ]
     return "\n".join(line for section in sections for line in section)

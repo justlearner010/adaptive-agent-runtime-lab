@@ -31,6 +31,12 @@ def _is_transient(exc: Exception) -> bool:
     return getattr(exc, "status_code", None) in _TRANSIENT_STATUS
 
 
+def _rejected_format(exc: LLMError) -> bool:
+    """True if the endpoint rejected response_format (400/422)."""
+    cause = exc.__cause__
+    return getattr(cause, "status_code", None) in (400, 422)
+
+
 class LLMError(RuntimeError):
     pass
 
@@ -56,6 +62,7 @@ class LLM:
         messages: list[dict[str, str]],
         max_tokens: int | None = None,
         retries: int = 3,
+        response_format: dict | None = None,
     ) -> tuple[str, dict[str, Any]]:
         """Single non-streaming completion. Returns (text, meta).
 
@@ -70,6 +77,7 @@ class LLM:
                     model=self.model,
                     messages=messages,
                     max_tokens=max_tokens,
+                    **({"response_format": response_format} if response_format else {}),
                 )
                 text = resp.choices[0].message.content or ""
                 usage = resp.usage
@@ -87,14 +95,23 @@ class LLM:
         messages: list[dict[str, str]],
         max_tokens: int | None = None,
         retries: int = 1,
+        structured: bool = True,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Completion with a JSON-object constraint. Returns (parsed, meta).
 
-        On invalid/truncated JSON, retries once with a corrective prompt
-        that re-feeds the failed output back to the model.
+        With `structured`, asks the endpoint for a json_object response_format
+        (experiment B); if the endpoint rejects it (400/422), retries without it.
+        On invalid/truncated JSON, retries with a corrective prompt.
         """
         constrained = [*messages, {"role": "user", "content": "Return only valid JSON."}]
-        text, meta = self.chat(constrained, max_tokens=max_tokens)
+        fmt = {"type": "json_object"} if structured else None
+        try:
+            text, meta = self.chat(constrained, max_tokens=max_tokens, response_format=fmt)
+        except LLMError as exc:
+            if structured and _rejected_format(exc):
+                text, meta = self.chat(constrained, max_tokens=max_tokens, response_format=None)
+            else:
+                raise
         for attempt in range(retries + 1):
             cleaned = text.strip()
             # strip markdown fences if the model wraps the JSON
@@ -114,7 +131,7 @@ class LLM:
                     {"role": "user", "content": "Your previous output was truncated or not valid JSON. "
                                                   "Return ONLY valid JSON, complete."},
                 ]
-                text, meta = self.chat(constrained, max_tokens=max_tokens)
+                text, meta = self.chat(constrained, max_tokens=max_tokens, response_format=fmt)
                 continue
             if not isinstance(parsed, dict):
                 if attempt >= retries:

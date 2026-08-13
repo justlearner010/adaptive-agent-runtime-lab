@@ -61,7 +61,7 @@ def subagent_correct(answer: str, events: list[dict], terms: list[str] | None) -
 
 
 def is_correct(task: dict, answer: Answer, events: list[dict], strategy: str) -> bool:
-    if task["category"] == "math":
+    if task["category"] in ("math", "chain"):
         return math_correct(answer.text, task["expected"])
     if task["category"] == "subagent":
         # task solved iff the answer covers the required topics; the structural
@@ -124,15 +124,17 @@ def run_eval(
     strategies: list[str],
     runs: int = 1,
     workers: int = 1,
+    policy_variants: list[str] | None = None,
     on_task: Callable[[dict], None] | None = None,
 ) -> dict[str, Any]:
     """Run each (task, strategy) `runs` times, optionally in parallel.
 
     Result shape per task:
         runs[strategy] = {"samples": [sample, ...]}
-        policy = {"samples": [{"strategy", "source"}, ...]}   # N classifications
+        policy[variant] = {"samples": [{"strategy", "source"}, ...]}  # per prompt variant
         rule_policy = {"strategy": "rule"}
     """
+    policy_variants = policy_variants or ["p0"]
     results: dict[str, Any] = {"tasks": []}
     jobs = [(task, strategy, i) for task in tasks for strategy in strategies for i in range(runs)]
 
@@ -162,14 +164,15 @@ def run_eval(
         for strategy in strategies:
             entry["runs"][strategy] = {"samples": by_key.get((task["id"], strategy), [])}
 
-        policy_samples = []
+        policy_samples: dict[str, list] = {v: [] for v in policy_variants}
         for _ in range(runs):
-            try:
-                policy = HybridPolicy(llm).analyze(task["task"])
-                policy_samples.append({"strategy": policy.strategy, "source": policy.source})
-            except Exception as exc:  # noqa: BLE001
-                policy_samples.append({"strategy": "error", "source": "error", "error": str(exc)[:100]})
-        entry["policy"] = {"samples": policy_samples}
+            for variant in policy_variants:
+                try:
+                    policy = HybridPolicy(llm, variant=variant).analyze(task["task"])
+                    policy_samples[variant].append({"strategy": policy.strategy, "source": policy.source})
+                except Exception as exc:  # noqa: BLE001
+                    policy_samples[variant].append({"strategy": "error", "source": "error", "error": str(exc)[:100]})
+        entry["policy"] = {v: {"samples": samples} for v, samples in policy_samples.items()}
 
         rule = RulePolicy().analyze(task["task"])
         entry["rule_policy"] = {"strategy": rule.strategy, "source": "rule"}
@@ -199,10 +202,11 @@ def save_results(results: dict[str, Any]) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, default=None, help="run at most N tasks")
-    parser.add_argument("--category", default=None, choices=["math", "search", "direct", "subagent"])
+    parser.add_argument("--category", default=None, choices=["math", "search", "direct", "subagent", "chain"])
     parser.add_argument("--strategies", default=",".join(STRATEGIES), help="comma-separated strategies")
     parser.add_argument("--runs", type=int, default=1, help="samples per (task, strategy)")
     parser.add_argument("--workers", type=int, default=1, help="parallel worker count")
+    parser.add_argument("--policy-variants", default="p0", help="comma-separated prompt variants (p0,p1,p2)")
     args = parser.parse_args(argv)
 
     from env import load_dotenv
@@ -213,9 +217,11 @@ def main(argv: list[str] | None = None) -> int:
     strategies = [s.strip() for s in args.strategies.split(",") if s.strip()]
 
     total = len(tasks) * len(strategies) * args.runs
+    policy_variants = [v.strip() for v in args.policy_variants.split(",") if v.strip()]
     print(f"running {len(tasks)} tasks x {len(strategies)} strategies x {args.runs} runs = {total} executions ...")
     results = run_eval(
         llm, tasks, strategies, runs=args.runs, workers=args.workers,
+        policy_variants=policy_variants,
         on_task=lambda t: print(f"  done: {t['id']} ({t['category']})", flush=True),
     )
     path = save_results(results)

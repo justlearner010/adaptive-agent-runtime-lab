@@ -48,6 +48,9 @@ def test_is_correct_by_category():
     math_task = {"category": "math", "expected": "48"}
     assert is_correct(math_task, Answer(text="48", strategy="x"), [], "direct")
 
+    chain_task = {"category": "chain", "expected": "59"}
+    assert is_correct(chain_task, Answer(text="the change is 59 yuan", strategy="x"), [], "direct")
+
     search_task = {"category": "search", "must_contain": ["interleaves"]}
     assert is_correct(search_task, Answer(text="ReAct interleaves reasoning", strategy="x"), [], "react")
 
@@ -95,10 +98,12 @@ def _entry(runs, policy_choices=("react", "react"), rule="react"):
         "id": "t1", "category": "math", "task": "x",
         "runs": runs,
         "policy": {
-            "samples": [
-                {"strategy": s, "source": ("error" if s == "error" else "llm")}
-                for s in policy_choices
-            ]
+            "p0": {
+                "samples": [
+                    {"strategy": s, "source": ("error" if s == "error" else "llm")}
+                    for s in policy_choices
+                ]
+            }
         },
         "rule_policy": {"strategy": rule, "source": "rule"},
     }
@@ -150,6 +155,29 @@ def test_policy_majority_and_llm_success():
     entry = _entry({}, policy_choices=("direct", "react", "react", "error"))
     assert policy_majority(entry) == "react"
     assert policy_llm_success_rate(entry) == 0.75  # 3 of 4 samples have source=llm
+    assert policy_majority(entry, variant="p0") == "react"
+
+
+def test_variant_summary_table():
+    from eval.report import variant_summary_table
+
+    # two variants: p0 agrees, p1 disagrees on the same optimal
+    entry = {
+        "id": "t1", "category": "math", "task": "x",
+        "runs": {
+            "direct": _samples(True, True, calls=1, tokens=1),
+            "react": _samples(True, True, calls=2, tokens=2),
+            "subagent": _samples(False, False),
+        },
+        "policy": {
+            "p0": {"samples": [{"strategy": "direct", "source": "llm"}, {"strategy": "direct", "source": "llm"}]},
+            "p1": {"samples": [{"strategy": "react", "source": "llm"}, {"strategy": "react", "source": "llm"}]},
+        },
+        "rule_policy": {"strategy": "react", "source": "rule"},
+    }
+    text = "\n".join(variant_summary_table({"tasks": [entry]}))
+    assert "| p0 | 1 | 100% | 1/1 |" in text
+    assert "| p1 | 1 | 100% | 0/1 |" in text
 
 
 def test_agreement_table_counts():

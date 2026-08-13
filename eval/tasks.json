@@ -34,6 +34,15 @@
     {"id": "subagent-05", "category": "subagent", "task": "write a plan to evaluate math and search tasks", "must_contain": ["math", "search"]},
     {"id": "subagent-06", "category": "subagent", "task": "compare the calculator and compaction tools", "must_contain": ["calculator", "compaction"]},
     {"id": "subagent-07", "category": "subagent", "task": "write a report on react, compaction, and subagent strategies", "must_contain": ["react", "compaction", "subagent"]},
-    {"id": "subagent-08", "category": "subagent", "task": "write a report covering the calculator tool, the search corpus, and the policy layer", "must_contain": ["calculator", "search", "policy"]}
+    {"id": "subagent-08", "category": "subagent", "task": "write a report covering the calculator tool, the search corpus, and the policy layer", "must_contain": ["calculator", "search", "policy"]},
+
+    {"id": "chain-01", "category": "chain", "task": "A shop sells apples at 3 yuan each and oranges at 4 yuan each. Buying 7 apples and 5 oranges and paying with a 100 yuan bill, how much change is given", "expected": "59"},
+    {"id": "chain-02", "category": "chain", "task": "Alice, Bob and Carol have ages that sum to 54. Alice is twice as old as Bob and Carol is 6 years older than Bob. How old is Bob", "expected": "12"},
+    {"id": "chain-03", "category": "chain", "task": "Start at 5 and repeatedly add 3 until the value first exceeds 50. How many additions are needed", "expected": "16"},
+    {"id": "chain-04", "category": "chain", "task": "compute the sum of squares of all integers from 1 to 20", "expected": "2870"},
+    {"id": "chain-05", "category": "chain", "task": "calculate 123456 * 789012 + 654321 - 98765", "expected": "97408821028"},
+    {"id": "chain-06", "category": "chain", "task": "A number is multiplied by 7 and then 13 is subtracted; the result is 99. What is the number", "expected": "16"},
+    {"id": "chain-07", "category": "chain", "task": "calculate 17 to the power of 4", "expected": "83521"},
+    {"id": "chain-08", "category": "chain", "task": "There are 3 consecutive integers whose product is 120. What is the smallest of them", "expected": "4"}
   ]
 }

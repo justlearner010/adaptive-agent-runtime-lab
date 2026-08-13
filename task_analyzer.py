@@ -18,7 +18,11 @@ from typing import Any
 
 STRATEGIES = ("direct", "react", "subagent")
 
-POLICY_PROMPT = f"""You are the policy router of an agent runtime. Analyze the task and choose an
+# Policy prompt variants (experiment A: definition engineering).
+# p0 = baseline (one-line definitions), p1 = operationalized + examples,
+# p2 = data-grounded (encoded from EXPERIMENT-002 optimal labels).
+PROMPT_VARIANTS: dict[str, str] = {
+    "p0": f"""You are the policy router of an agent runtime. Analyze the task and choose an
 execution strategy.
 
 Strategies:
@@ -29,7 +33,44 @@ Strategies:
 Return ONLY JSON:
 {{"strategy": "<direct|react|subagent>", "complexity": "<low|medium|high>",
  "tools_needed": ["<calculator|search|...>"], "reasoning": "<one short sentence>"}}
-"""
+""",
+    "p1": f"""You are the policy router of an agent runtime. Choose ONE execution strategy.
+
+Strategies:
+- direct: single answer from model knowledge, no tools.
+  Use for: simple facts, common-sense Q&A, easy arithmetic, short comparisons/summaries.
+  Examples: "what is the capital of france", "what is 2 + 2", "compare react and subagent"
+- react: reason -> call a tool -> observe -> repeat until a final answer.
+  Use for: queries about the local corpus (the model does not know it), or exact
+  calculation that one-shot answers get wrong (large numbers, multi-step arithmetic).
+  Examples: "search the corpus for compaction", "calculate 1234567 * 9876543 + 55555"
+- subagent: split into independent subtasks with isolated contexts, then synthesize.
+  Use for: long multi-topic reports, tasks with many independent parts.
+  Example: "write a report on react, compaction, and subagent strategies"
+
+Return ONLY JSON:
+{{"strategy": "<direct|react|subagent>", "complexity": "<low|medium|high>",
+ "tools_needed": ["<calculator|search|...>"], "reasoning": "<one short sentence>"}}
+""",
+    "p2": f"""You are the policy router of an agent runtime. Choose ONE execution strategy.
+
+Empirical rule from benchmark data (strategy that is correct AND cheapest):
+- direct is optimal by default: facts, common knowledge, easy/moderate arithmetic,
+  comparisons, summaries, even multi-topic reports, all succeed in one call.
+  Examples: "what is the capital of france", "what is 2 + 2",
+            "compare react and subagent", "write a report on react and compaction"
+- react is optimal ONLY when the task needs information outside model knowledge
+  (corpus queries) or exact arithmetic one-shot answers get wrong (large products,
+  long chains). When in doubt, prefer direct.
+  Examples: "search the corpus for compaction", "calculate 1234567 * 9876543"
+- subagent is optimal ONLY when the task clearly exceeds one-shot capacity and is
+  naturally parallel; in practice almost nothing qualifies.
+
+Return ONLY JSON:
+{{"strategy": "<direct|react|subagent>", "complexity": "<low|medium|high>",
+ "tools_needed": ["<calculator|search|...>"], "reasoning": "<one short sentence>"}}
+""",
+}
 
 _MATH_RE = re.compile(r"\b(compute|calculate|calc|math|sum|solve|formula|(\d+)\s*[+\-*/^%])", re.I)
 _SEARCH_RE = re.compile(r"\b(search|find|look up|what is|who is|when|where|about|facts?|corpus)\b", re.I)
@@ -78,16 +119,19 @@ class RulePolicy:
 
 
 class LLMPolicy:
-    def __init__(self, llm: Any) -> None:
+    def __init__(self, llm: Any, variant: str = "p0") -> None:
         self.llm = llm
+        if variant not in PROMPT_VARIANTS:
+            raise ValueError(f"unknown policy prompt variant {variant!r}")
+        self.prompt = PROMPT_VARIANTS[variant]
 
     def analyze(self, task: str) -> Policy:
         parsed, meta = self.llm.chat_json(
             [
-                {"role": "system", "content": POLICY_PROMPT},
+                {"role": "system", "content": self.prompt},
                 {"role": "user", "content": task},
             ],
-            max_tokens=200,
+            max_tokens=512,
         )
         strategy = parsed.get("strategy")
         if strategy not in STRATEGIES:
@@ -110,8 +154,8 @@ class LLMPolicy:
 class HybridPolicy:
     """LLM first, rule fallback on any failure (no key, bad JSON, etc.)."""
 
-    def __init__(self, llm: Any) -> None:
-        self.llm_policy = LLMPolicy(llm)
+    def __init__(self, llm: Any, variant: str = "p0") -> None:
+        self.llm_policy = LLMPolicy(llm, variant=variant)
         self.rule_policy = RulePolicy()
 
     def analyze(self, task: str) -> Policy:
