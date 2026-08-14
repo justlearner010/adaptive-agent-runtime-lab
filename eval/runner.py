@@ -163,20 +163,39 @@ def run_eval(
     policy_variants = policy_variants or ["p0"]
     results: dict[str, Any] = {"tasks": []}
     jobs = [(task, strategy, i) for task in tasks for strategy in strategies for i in range(runs)]
+    policy_jobs = [(task, variant, i) for task in tasks for variant in policy_variants for i in range(runs)]
 
-    def _submit(executor: ThreadPoolExecutor) -> list:
-        return [executor.submit(run_once, llm, task, strategy) for task, strategy, _ in jobs]
+    def _submit(executor: ThreadPoolExecutor) -> list[tuple[str, tuple, Any]]:
+        # interleave strategy and policy jobs so both workloads share the pool
+        # concurrently; submitting them as two sequential batches would keep
+        # the elapsed time additive instead of max(strategy, policy)
+        pending: list[tuple[str, tuple, Any]] = []
+        n = max(len(jobs), len(policy_jobs))
+        for i in range(n):
+            if i < len(jobs):
+                job = jobs[i]
+                pending.append(("strategy", job, executor.submit(run_once, llm, job[0], job[1])))
+            if i < len(policy_jobs):
+                job = policy_jobs[i]
+                pending.append(("policy", job, executor.submit(_classify, llm, job[0], job[1])))
+        return pending
 
-    if workers > 1 and len(jobs) > 1:
+    if workers > 1 and (len(jobs) + len(policy_jobs)) > 1:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = _submit(pool)
-            outcomes = [f.result() for f in futures]
+            pending = _submit(pool)
+            strategy_outcomes = [(job, fut.result()) for kind, job, fut in pending if kind == "strategy"]
+            policy_outcomes = [(job, fut.result()) for kind, job, fut in pending if kind == "policy"]
     else:
-        outcomes = [run_once(llm, task, strategy) for task, strategy, _ in jobs]
+        strategy_outcomes = [(job, run_once(llm, *job)) for job in jobs]
+        policy_outcomes = [(job, _classify(llm, *job)) for job in policy_jobs]
 
     by_key: dict[tuple[str, str], list[dict]] = {}
-    for (task, strategy, _), sample in zip(jobs, outcomes):
+    for (task, strategy, _), sample in strategy_outcomes:
         by_key.setdefault((task["id"], strategy), []).append(sample)
+
+    policy_by_key: dict[tuple[str, str], list[dict]] = {}
+    for (task, variant, _), sample in policy_outcomes:
+        policy_by_key.setdefault((task["id"], variant), []).append(sample)
 
     for task in tasks:
         entry: dict[str, Any] = {
@@ -190,15 +209,9 @@ def run_eval(
         for strategy in strategies:
             entry["runs"][strategy] = {"samples": by_key.get((task["id"], strategy), [])}
 
-        policy_samples: dict[str, list] = {v: [] for v in policy_variants}
-        for _ in range(runs):
-            for variant in policy_variants:
-                try:
-                    policy = HybridPolicy(llm, variant=variant).analyze(task["task"])
-                    policy_samples[variant].append({"strategy": policy.strategy, "source": policy.source})
-                except Exception as exc:  # noqa: BLE001
-                    policy_samples[variant].append({"strategy": "error", "source": "error", "error": str(exc)[:100]})
-        entry["policy"] = {v: {"samples": samples} for v, samples in policy_samples.items()}
+        entry["policy"] = {
+            variant: {"samples": policy_by_key.get((task["id"], variant), [])} for variant in policy_variants
+        }
 
         rule = RulePolicy().analyze(task["task"])
         entry["rule_policy"] = {"strategy": rule.strategy, "source": "rule"}
@@ -206,6 +219,15 @@ def run_eval(
         if on_task:
             on_task(task)
     return results
+
+
+def _classify(llm: Any, task: dict, variant: str) -> dict:
+    """One policy classification sample; never raises."""
+    try:
+        policy = HybridPolicy(llm, variant=variant).analyze(task["task"])
+        return {"strategy": policy.strategy, "source": policy.source}
+    except Exception as exc:  # noqa: BLE001
+        return {"strategy": "error", "source": "error", "error": str(exc)[:100]}
 
 
 def load_tasks(category: str | None = None, limit: int | None = None) -> list[dict]:
