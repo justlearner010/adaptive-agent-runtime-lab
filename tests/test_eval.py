@@ -7,7 +7,7 @@ from eval.runner import (
     keyword_correct,
     math_correct,
     metrics_from_trace,
-    subagent_correct,
+    search_grounded,
 )
 
 
@@ -25,6 +25,10 @@ def test_math_correct():
     assert math_correct("Answer: 48", "48")
     assert not math_correct("Answer: 47", "48")
     assert not math_correct("I don't know", "1093")
+    # verification tails must not cause false negatives: the expected value
+    # appears among the numbers even though the last number is not the answer
+    assert math_correct("The number is **16**. Check: 16×7=112, 112−13=99", "16")
+    assert math_correct("1234567 × 9876543 + 55555 = 12193254117436", "12193254117436")
 
 
 def test_keyword_correct_case_insensitive():
@@ -32,14 +36,30 @@ def test_keyword_correct_case_insensitive():
     assert not keyword_correct("react is fine", ["interleaves"])
 
 
-def test_subagent_correct_requires_spawns():
-    events = [
-        {"kind": "subagent", "data": {}},
-        {"kind": "subagent", "data": {}},
+def test_search_grounded():
+    corpus = ["ReAct interleaves reasoning steps (Thought) and tool calls (Action) with observations."]
+    # quoting the corpus -> grounded
+    assert search_grounded(
+        "ReAct interleaves reasoning steps (Thought) and tool calls", corpus, ["interleaves", "reasoning"]
+    )
+    # generic knowledge without corpus text -> not grounded
+    assert not search_grounded("ReAct combines thinking and acting with tools", corpus, ["interleaves"])
+    assert not search_grounded("", corpus, ["interleaves"])
+
+
+def test_search_grounded_requires_each_term():
+    corpus = [
+        "The calculator tool evaluates arithmetic expressions safely via an AST whitelist.",
+        "Compaction summarizes long conversations to keep the context window bounded.",
     ]
-    assert subagent_correct("compare direct and subagent", events, ["direct", "subagent"])
-    assert not subagent_correct("compare", events, ["direct", "subagent"])
-    assert not subagent_correct("compare direct and subagent", [{"kind": "llm_call", "data": {}}], None)
+    both = (
+        "The calculator tool evaluates arithmetic expressions. "
+        "Compaction summarizes long conversations to keep the context window bounded."
+    )
+    assert search_grounded(both, corpus, ["calculator", "compaction"])
+    # quoting only one requested doc while mentioning the other generically must fail
+    partial = "The calculator tool evaluates arithmetic expressions. Compaction is useful."
+    assert not search_grounded(partial, corpus, ["calculator", "compaction"])
 
 
 def test_is_correct_by_category():
@@ -51,19 +71,25 @@ def test_is_correct_by_category():
     chain_task = {"category": "chain", "expected": "59"}
     assert is_correct(chain_task, Answer(text="the change is 59 yuan", strategy="x"), [], "direct")
 
-    search_task = {"category": "search", "must_contain": ["interleaves"]}
-    assert is_correct(search_task, Answer(text="ReAct interleaves reasoning", strategy="x"), [], "react")
+    search_task = {"category": "search", "must_contain": ["interleaves", "reasoning"]}
+    quoting = "ReAct interleaves reasoning steps (Thought) and tool calls (Action) with observations."
+    assert is_correct(search_task, Answer(text=quoting, strategy="react"), [], "react")
+    # keyword hit from generic knowledge without corpus grounding -> NOT correct
+    assert not is_correct(
+        search_task,
+        Answer(text="ReAct interleaves reasoning with acting", strategy="direct"),
+        [],
+        "direct",
+    )
 
     direct_task = {"category": "direct", "must_contain": ["paris"]}
     assert is_correct(direct_task, Answer(text="paris", strategy="x"), [], "direct")
 
-    sub_task = {"category": "subagent", "must_contain": ["react"]}
-    events = [{"kind": "subagent", "data": {}}, {"kind": "subagent", "data": {}}]
-    # subagent strategy run: needs >=2 spawns + keywords
-    assert is_correct(sub_task, Answer(text="react and subagent", strategy="subagent"), events, "subagent")
-    assert not is_correct(sub_task, Answer(text="react and subagent", strategy="subagent"), [], "subagent")
-    # direct/react run on the same task: judged on the answer alone
-    assert is_correct(sub_task, Answer(text="react and subagent", strategy="direct"), [], "direct")
+    sub_task = {"category": "subagent", "must_contain": ["react", "subagent"]}
+    # judged on the answer alone, regardless of strategy; spawns is a separate metric
+    assert is_correct(sub_task, Answer(text="react and subagent report", strategy="subagent"), [], "subagent")
+    assert not is_correct(sub_task, Answer(text="", strategy="subagent"), [], "subagent")
+    assert is_correct(sub_task, Answer(text="react and subagent report", strategy="direct"), [], "direct")
     assert not is_correct(sub_task, Answer(text="nothing relevant", strategy="direct"), [], "direct")
 
 

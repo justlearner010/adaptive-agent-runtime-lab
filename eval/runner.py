@@ -22,10 +22,14 @@ from executors import Answer
 from llm import LLM
 from main import run_pipeline
 from task_analyzer import HybridPolicy, RulePolicy
+from tools.search import DEFAULT_CORPUS
 from trace import Trace
 
 STRATEGIES = ["direct", "react", "subagent"]
 RESULTS_DIR = Path(__file__).parent / "results"
+
+# corpus texts used by the grounding check for search-category correctness
+_CORPUS_TEXTS = [text for _, text in DEFAULT_CORPUS]
 
 
 # --- correctness checkers (pure) -------------------------------------------------
@@ -37,10 +41,17 @@ def extract_number(text: str) -> float | None:
 
 
 def math_correct(answer: str, expected: str) -> bool:
-    value = extract_number(answer)
-    if value is None:
-        return False
-    return abs(value - float(expected.replace(",", ""))) < 1e-6
+    """True if the expected value appears among the numbers in the answer.
+
+    Using "any number matches" (instead of the last number) avoids false
+    negatives from verification tails, e.g. "…16. Check: 16×7=112, 112−13=99"
+    where the last number (99) is not the answer.
+    """
+    target = float(expected.replace(",", ""))
+    for num in re.findall(r"[-+]?\d+(?:\.\d+)?", answer.replace(",", "")):
+        if abs(float(num) - target) < 1e-6:
+            return True
+    return False
 
 
 def keyword_correct(answer: str, terms: list[str]) -> bool:
@@ -48,26 +59,41 @@ def keyword_correct(answer: str, terms: list[str]) -> bool:
     return all(t.lower() in low for t in terms)
 
 
-def subagent_correct(answer: str, events: list[dict], terms: list[str] | None) -> bool:
-    """Structural check: the subagent strategy really decomposed the task.
+def _ngrams(text: str, n: int = 5) -> set[str]:
+    words = re.findall(r"[a-z0-9]+", text.lower())
+    return {" ".join(words[i : i + n]) for i in range(len(words) - n + 1)}
 
-    Only meaningful for subagent-strategy runs; other strategies are judged
-    on the answer alone (see is_correct).
+
+def search_grounded(answer: str, corpus_texts: list[str], terms: list[str]) -> bool:
+    """True if the answer quotes corpus text for EVERY required term.
+
+    A single n-gram from any document is not enough: multi-topic tasks
+    (e.g. must_contain ["calculator", "compaction"]) must show grounded
+    evidence for each requested fact, or a generic mention plus one quote
+    would pass. Keyword hits from generic model knowledge (e.g. "calculator
+    … arithmetic") must not count as a solved search task.
     """
-    spawns = [e for e in events if e["kind"] == "subagent"]
-    if len(spawns) < 2 or not answer.strip():
-        return False
-    return keyword_correct(answer, terms) if terms else True
+    answer_grams = _ngrams(answer)
+    for term in terms:
+        docs = [doc for doc in corpus_texts if term.lower() in doc.lower()]
+        if not any(answer_grams & _ngrams(doc) for doc in docs):
+            return False
+    return True
 
 
 def is_correct(task: dict, answer: Answer, events: list[dict], strategy: str) -> bool:
     if task["category"] in ("math", "chain"):
         return math_correct(answer.text, task["expected"])
+    if task["category"] == "search":
+        # keywords + per-term grounding: the answer must cite the corpus
+        # for every requested fact
+        return keyword_correct(answer.text, task.get("must_contain", [])) and search_grounded(
+            answer.text, _CORPUS_TEXTS, task.get("must_contain", [])
+        )
     if task["category"] == "subagent":
-        # task solved iff the answer covers the required topics; the structural
-        # check (>=2 spawns) applies only to the subagent strategy itself
-        if strategy == "subagent":
-            return subagent_correct(answer.text, events, task.get("must_contain"))
+        # judged on the answer alone; mechanism fidelity (>=2 spawns) is a
+        # separate metric, not part of correctness (planner may reasonably
+        # decompose into a single subtask for simple tasks)
         return bool(answer.text.strip()) and keyword_correct(answer.text, task.get("must_contain", []))
     return keyword_correct(answer.text, task.get("must_contain", []))
 
