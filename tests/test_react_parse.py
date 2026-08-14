@@ -38,6 +38,17 @@ def test_nested_braces_in_input():
     assert _parse_action(text) == {"tool": "search", "input": '{"k": 1}'}
 
 
+def test_unmatched_brace_inside_string_value():
+    # braces inside JSON strings must not be counted as structural
+    text = 'Action: {"tool": "search", "input": "find {"}'
+    assert _parse_action(text) == {"tool": "search", "input": "find {"}
+
+
+def test_closing_brace_inside_string_value():
+    text = 'Action: {"tool": "search", "input": "a}b"}'
+    assert _parse_action(text) == {"tool": "search", "input": "a}b"}
+
+
 def test_executor_executes_tool_despite_trailing_garbage():
     class FakeLLM:
         def __init__(self, responses):

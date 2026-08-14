@@ -49,9 +49,21 @@ def _extract_action(text: str) -> dict | None:
     for match in re.finditer(r"Action:\s*\{", text):
         start = match.end() - 1  # position of the opening '{'
         depth = 0
+        in_string = False
+        escaped = False
         for i in range(start, len(text)):
             ch = text[i]
-            if ch == "{":
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
                 depth += 1
             elif ch == "}":
                 depth -= 1
