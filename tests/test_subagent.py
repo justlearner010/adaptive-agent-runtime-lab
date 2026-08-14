@@ -78,6 +78,30 @@ def test_normal_plan_uses_all_subtasks():
     assert len(spawns) == 2
 
 
+def test_parallel_workers_use_all_subtasks_in_order():
+    # workers=4 with 3 subtasks: all spawns recorded, order preserved
+    llm = _NormalLLM()
+    executor = SubagentExecutor(max_steps_per_agent=1, workers=4)
+    trace = Trace()
+    answer = executor.execute("some task", llm, trace)
+
+    assert answer.text == "Final Answer: done"
+    spawns = [e for e in trace.to_dict() if e["kind"] == "subagent"]
+    assert len(spawns) == 2
+    assert [s["data"]["index"] for s in spawns] == [0, 1]
+
+
+def test_parallel_workers_respect_serial_fallback():
+    # single subtask with workers>1 must still work (no pool for len==1)
+    executor = SubagentExecutor(max_steps_per_agent=1, workers=4)
+    trace = Trace()
+    answer = executor.execute("some task", _PlannerFailsLLM(), trace)
+
+    assert answer.text == "Final Answer: done"
+    spawns = [e for e in trace.to_dict() if e["kind"] == "subagent"]
+    assert len(spawns) == 1
+
+
 def test_empty_synthesis_falls_back_to_worker_reports():
     executor = SubagentExecutor(max_steps_per_agent=1)
     trace = Trace()

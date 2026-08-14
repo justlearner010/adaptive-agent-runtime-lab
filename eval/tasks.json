@@ -43,6 +43,15 @@
     {"id": "chain-05", "category": "chain", "task": "calculate 123456 * 789012 + 654321 - 98765", "expected": "97408821028"},
     {"id": "chain-06", "category": "chain", "task": "A number is multiplied by 7 and then 13 is subtracted; the result is 99. What is the number", "expected": "16"},
     {"id": "chain-07", "category": "chain", "task": "calculate 17 to the power of 4", "expected": "83521"},
-    {"id": "chain-08", "category": "chain", "task": "There are 3 consecutive integers whose product is 120. What is the smallest of them", "expected": "4"}
+    {"id": "chain-08", "category": "chain", "task": "There are 3 consecutive integers whose product is 120. What is the smallest of them", "expected": "4"},
+
+    {"id": "longdoc-01", "category": "longdoc", "task": "Use the doc tool to read document 'deltas' (it is long — read it page by page with the read action) and report every mining station it mentions together with its key property.", "must_contain": ["aria-7", "bruma-3", "celso-9", "drava-2", "eira-5", "fenno-8", "golde-1", "halo-6"]},
+    {"id": "longdoc-02", "category": "longdoc", "task": "Read document 'deltas' from the doc tool page by page. List all facts about mining stations in the Delta sector that the document contains.", "must_contain": ["aria-7", "bruma-3", "celso-9", "drava-2", "eira-5", "fenno-8", "golde-1", "halo-6"]},
+    {"id": "longdoc-03", "category": "longdoc", "task": "Use the doc tool to read document 'nexus' page by page and report every algorithm fact it contains about the Nexus library.", "must_contain": ["quell", "vanish", "wist", "xenon", "yarrow", "zephyr", "amber", "cobalt"]},
+    {"id": "longdoc-04", "category": "longdoc", "task": "Read document 'nexus' from the doc tool (it is long, so read it in pages) and report all the algorithm facts in it.", "must_contain": ["quell", "vanish", "wist", "xenon", "yarrow", "zephyr", "amber", "cobalt"]},
+    {"id": "longdoc-05", "category": "longdoc", "task": "Use the doc tool to read document 'haven' page by page and report every research station it mentions with its key property.", "must_contain": ["tide-1", "spray-4", "kelp-7", "reef-2", "marsh-9", "delta-3", "lago-6", "cove-8"]},
+    {"id": "longdoc-06", "category": "longdoc", "task": "Read document 'haven' from the doc tool page by page. List all facts about research stations in the Haven archipelago.", "must_contain": ["tide-1", "spray-4", "kelp-7", "reef-2", "marsh-9", "delta-3", "lago-6", "cove-8"]},
+    {"id": "longdoc-07", "category": "longdoc", "task": "Use the doc tool to read document 'meridian' page by page and report every observatory it mentions with its key property.", "must_contain": ["pico-1", "luna-2", "vesta-4", "cosmo-7", "solar-3", "orbita-9", "quasar-5", "nebula-6"]},
+    {"id": "longdoc-08", "category": "longdoc", "task": "Read document 'meridian' from the doc tool (it is long, so read it in pages) and report all the observatory facts in it.", "must_contain": ["pico-1", "luna-2", "vesta-4", "cosmo-7", "solar-3", "orbita-9", "quasar-5", "nebula-6"]}
   ]
 }

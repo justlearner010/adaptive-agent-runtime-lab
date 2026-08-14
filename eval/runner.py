@@ -225,9 +225,10 @@ def _classify(llm: Any, task: dict, variant: str) -> dict:
     """One policy classification sample; never raises."""
     try:
         policy = HybridPolicy(llm, variant=variant).analyze(task["task"])
-        return {"strategy": policy.strategy, "source": policy.source}
+        return {"strategy": policy.strategy, "source": policy.source, "confidence": policy.confidence}
     except Exception as exc:  # noqa: BLE001
-        return {"strategy": "error", "source": "error", "error": str(exc)[:100]}
+        # keep the raw model output (chat_json embeds it) for failure diagnosis
+        return {"strategy": "error", "source": "error", "error": str(exc)[:300]}
 
 
 def load_tasks(category: str | None = None, limit: int | None = None) -> list[dict]:
@@ -250,7 +251,7 @@ def save_results(results: dict[str, Any]) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, default=None, help="run at most N tasks")
-    parser.add_argument("--category", default=None, choices=["math", "search", "direct", "subagent", "chain"])
+    parser.add_argument("--category", default=None, choices=["math", "search", "direct", "subagent", "chain", "longdoc"])
     parser.add_argument("--strategies", default=",".join(STRATEGIES), help="comma-separated strategies")
     parser.add_argument("--runs", type=int, default=1, help="samples per (task, strategy)")
     parser.add_argument("--workers", type=int, default=1, help="parallel worker count")

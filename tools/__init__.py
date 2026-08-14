@@ -1,4 +1,4 @@
-"""Tool registry and the two v1 tools: calculator and search.
+"""Tool registry: calculator, search, and doc (v2 long-document store).
 
 Tools implement a uniform interface:
     name: str
@@ -8,11 +8,12 @@ Tools implement a uniform interface:
 
 from __future__ import annotations
 
-from . import calculator, search
+from . import calculator, doc, search
 
 TOOLS: dict[str, object] = {
     calculator.CalculatorTool.name: calculator.CalculatorTool(),
     search.SearchTool.name: search.SearchTool(),
+    doc.DocTool.name: doc.DocTool(),
 }
 
 

@@ -32,7 +32,8 @@ Strategies:
 
 Return ONLY JSON:
 {{"strategy": "<direct|react|subagent>", "complexity": "<low|medium|high>",
- "tools_needed": ["<calculator|search|...>"], "reasoning": "<one short sentence>"}}
+ "tools_needed": ["<calculator|search|...>"], "reasoning": "<one short sentence>",
+ "confidence": <0.0-1.0>}}
 """,
     "p1": f"""You are the policy router of an agent runtime. Choose ONE execution strategy.
 
@@ -50,7 +51,8 @@ Strategies:
 
 Return ONLY JSON:
 {{"strategy": "<direct|react|subagent>", "complexity": "<low|medium|high>",
- "tools_needed": ["<calculator|search|...>"], "reasoning": "<one short sentence>"}}
+ "tools_needed": ["<calculator|search|...>"], "reasoning": "<one short sentence>",
+ "confidence": <0.0-1.0>}}
 """,
     "p2": f"""You are the policy router of an agent runtime. Choose ONE execution strategy.
 
@@ -68,7 +70,8 @@ Empirical rule from benchmark data (strategy that is correct AND cheapest):
 
 Return ONLY JSON:
 {{"strategy": "<direct|react|subagent>", "complexity": "<low|medium|high>",
- "tools_needed": ["<calculator|search|...>"], "reasoning": "<one short sentence>"}}
+ "tools_needed": ["<calculator|search|...>"], "reasoning": "<one short sentence>",
+ "confidence": <0.0-1.0>}}
 """,
 }
 
@@ -88,6 +91,7 @@ class Policy:
     tools_needed: list[str] = field(default_factory=list)
     reasoning: str = ""
     source: str = ""  # "llm" | "rule" | "fallback"
+    confidence: float | None = None  # LLM self-reported confidence (0-1), v2
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -96,6 +100,7 @@ class Policy:
             "tools_needed": self.tools_needed,
             "reasoning": self.reasoning,
             "source": self.source,
+            "confidence": self.confidence,
         }
 
 
@@ -131,7 +136,7 @@ class LLMPolicy:
                 {"role": "system", "content": self.prompt},
                 {"role": "user", "content": task},
             ],
-            max_tokens=512,
+            max_tokens=1024,  # EXPERIMENT-003: 512 was tight; reasoning models need headroom
         )
         strategy = parsed.get("strategy")
         if strategy not in STRATEGIES:
@@ -148,7 +153,17 @@ class LLMPolicy:
             tools_needed=[str(t) for t in tools],
             reasoning=str(parsed.get("reasoning", "")),
             source="llm",
+            confidence=_parse_confidence(parsed.get("confidence")),
         )
+
+
+def _parse_confidence(raw: Any) -> float | None:
+    """Parse a 0-1 confidence value; invalid/missing -> None."""
+    try:
+        confidence = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return confidence if 0.0 <= confidence <= 1.0 else None
 
 
 class HybridPolicy:
