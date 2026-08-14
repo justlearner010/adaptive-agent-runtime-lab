@@ -66,5 +66,7 @@ def test_empty_synthesis_falls_back_to_worker_reports():
     answer = executor.execute("some task", _EmptySynthesisLLM(), trace)
 
     assert "worker report" in answer.text
+    # internal subtask prompt must not leak into the user-facing answer
+    assert "do a" not in answer.text
     synth_events = [e for e in trace.to_dict() if e["kind"] == "llm_call" and "synthesizer" in (e["data"].get("role") or "")]
     assert synth_events[-1]["data"].get("error", "").startswith("empty synthesis")

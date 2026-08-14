@@ -56,11 +56,10 @@ class SubagentExecutor:
             subtasks = []
         if not isinstance(subtasks, list) or not subtasks:
             subtasks = [{"title": "main", "prompt": task}]
-        if not isinstance(subtasks, list) or not subtasks:
-            subtasks = [{"title": "main", "prompt": task}]
 
         # 2) delegate: each subtask runs in an isolated ReAct context
         reports: list[str] = []
+        fallback_parts: list[str] = []
         for index, subtask in enumerate(subtasks):
             prompt = subtask.get("prompt") or subtask.get("title") or task
             title = subtask.get("title", f"subtask-{index}")
@@ -68,6 +67,8 @@ class SubagentExecutor:
             worker = ReactExecutor(max_steps=self.max_steps_per_agent)
             answer = worker.execute(prompt, llm, trace)
             reports.append(f"[{title}]\n{prompt}\n-> {answer.text}")
+            # fallback path keeps only title + answer, never the internal prompt
+            fallback_parts.append(f"[{title}]\n{answer.text}")
 
         # 3) synthesize
         text, meta = llm.chat(
@@ -79,8 +80,8 @@ class SubagentExecutor:
         )
         trace.record("llm_call", role="subagent/synthesizer", **meta)
         if not text.strip():
-            # empty synthesis -> fall back to raw worker reports
-            text = "\n\n".join(reports)
+            # empty synthesis -> fall back to worker answers (internal prompts stripped)
+            text = "\n\n".join(fallback_parts)
             trace.record("llm_call", role="subagent/synthesizer", error="empty synthesis, fell back to worker reports")
 
         return Answer(
