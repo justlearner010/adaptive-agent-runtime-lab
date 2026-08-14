@@ -13,6 +13,67 @@ task ──▶ task_analyzer (Policy) ──▶ router ──▶ executor
                                               └── trace:  全程结构化留痕
 ```
 
+## 实验定位（重要，先读）
+
+### 实验类型
+
+**研究型实验项目**，不是生产系统。本仓库用"可复现的实验闭环"驱动设计决策：
+设计 -> 实现 -> 评测 -> 发现缺陷 -> 修复 -> 重测，每一步都留痕（Issue/PR/trace/评测数据）。
+
+### 目的
+
+回答一个核心问题：**给定任务，选择哪种执行策略（direct / react / subagent）才能"对且便宜"？**
+
+- 建立 `Task -> Policy -> Execution Strategy` 管线，量化各策略的适用域、正确率、成本；
+- 采集结构化 trace 数据，为后续「学习式 Policy」（v5）铺路；
+- 顺带验证运行时机制本身（ReAct 循环、subagent 委托）的健壮性。
+
+### 方法论
+
+- **评测 harness**（`eval/`）：对每个任务**强制**跑全部策略 × N 次采样（默认 N=5），
+  从 trace 聚合 `llm_calls / tokens / latency / tool_calls / spawns`；
+- **判定器**（`eval/runner.py`）：
+  - 数学/chain 类：回答中**任一数字**匹配 expected（容忍千分位）；
+  - search 类：关键词命中 **且** 对每个必需主题有语料引用（5-gram grounding，防止凭常识蒙对）；
+  - spawns（子任务数）为独立机制指标，**不**计入正确性；
+- **一致率**：policy 多数票 vs `optimal`（所有正确策略中 LLM 调用最少者，并列取 token 少），
+  并配 **always-* 退化基线**作为参照系（否则"永远选 direct"就能拿 77.5%）；
+- **变更流程**：先 Issue -> 再 PR（`Closes #n`）-> owner Review -> squash 合并。
+
+### 进度
+
+| 阶段 | 内容 | 实验/提交 |
+|---|---|---|
+| v1 | 管线骨架 + direct/react/subagent + calculator/search + trace | `90cdbb9` |
+| Phase 1 | 评测 harness + N=5 多采样 + 并行执行 | [EXPERIMENT-001/002](eval/EXPERIMENT-001.md) |
+| Phase 2 | 分类可靠性专项：prompt 变体 p0/p1/p2、结构化输出、chain 任务 | [EXPERIMENT-003](eval/EXPERIMENT-003.md) |
+| Phase 3 | 判定器修复、ReAct 健壮性、subagent 泄漏、并行分类、退化基线 + 全量重测 | [EXPERIMENT-004](eval/EXPERIMENT-004.md) |
+| v2+ | 真实搜索 API、流式、并行 subagent / Plan-and-Execute / 学习式 Policy | Roadmap，未开始 |
+
+### 暂时结论（截至 EXPERIMENT-004，单模型 deepseek-v4-flash）
+
+1. **direct 的适用域远宽于直觉**：除语料搜索外，所有类别 95~100% 正确且仅 1 次调用——
+   **"默认 direct"是最优基线**（31/40 任务的 optimal 都是它）。
+2. **react 只在需要外部信息时必要**：语料搜索类 95% vs direct 0%；其余任务用它纯属浪费。
+3. **subagent 在本评测集上最贵且无优势**：search 类 8.5 次调用/23.7s、subagent 类 46.9s；
+   其真实适用域（长文档分块、并行调研、上下文隔离）评测集**尚未覆盖**，价值未证。
+4. **LLM 分类成功时质量高**（p0 多数票一致率 92.5%，高出 always-direct 基线 15pp），
+   但**部分任务分类不稳定**（如大数乘法 math-02 分类成功率仅 20%）；规则兜底接近无用（32.5%）。
+5. **模型对结果影响显著**：deepseek-chat -> v4-flash 后整体正确率上升，结论需固定模型验证。
+
+> 以上是**阶段性结论**，不是定论。每次模型/评测集/判定器变化都可能改写它们。
+
+### 限制（诚实声明）
+
+- **单模型、单轮任务**：无跨模型泛化性，无多轮/长上下文任务；
+- **判定器是近似**：关键词 + 5-gram grounding 对轻度改写敏感；LLM-as-judge 未实现；
+- **评测集小且同质**：40 任务 × 5 类，缺少真正需要 subagent 的任务；
+- **混杂因素**：EXPERIMENT-004 中模型变更与判定器修复叠加，无法单因素归因；
+- **成本导向的 optimal**：未纳入答案质量与失败风险；
+- 全量评测约 70 分钟 / 数元 API 费用（4 workers，模型延迟主导）。
+
+研究背景与机制对比见 [RESEARCH.md](RESEARCH.md)。
+
 ## 快速开始
 
 ```bash
@@ -56,8 +117,6 @@ trace.py           结构化 trace（策略/LLM/工具/耗时）
 - **Subagent（v1 简化）**：planner 拆分子任务 -> 每个子任务跑独立 ReAct 上下文 -> synthesizer 合成。
   子任务上下文与主上下文隔离，不污染主 token 预算。
 - **Trace 先行**：所有 trace 数据为后续「同任务集多策略对比评估」和「学习式 Policy」做准备。
-
-研究背景与机制对比见 [RESEARCH.md](RESEARCH.md)。
 
 ## 协作流程（重要）
 
