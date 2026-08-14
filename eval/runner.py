@@ -137,20 +137,31 @@ def run_eval(
     policy_variants = policy_variants or ["p0"]
     results: dict[str, Any] = {"tasks": []}
     jobs = [(task, strategy, i) for task in tasks for strategy in strategies for i in range(runs)]
+    policy_jobs = [(task, variant, i) for task in tasks for variant in policy_variants for i in range(runs)]
 
     def _submit(executor: ThreadPoolExecutor) -> list:
-        return [executor.submit(run_once, llm, task, strategy) for task, strategy, _ in jobs]
+        futures = [executor.submit(run_once, llm, task, strategy) for task, strategy, _ in jobs]
+        futures += [executor.submit(_classify, llm, task, variant) for task, variant, _ in policy_jobs]
+        return futures
 
-    if workers > 1 and len(jobs) > 1:
+    if workers > 1 and (len(jobs) + len(policy_jobs)) > 1:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = _submit(pool)
-            outcomes = [f.result() for f in futures]
+            outcomes = [f.result() for f in _submit(pool)]
     else:
         outcomes = [run_once(llm, task, strategy) for task, strategy, _ in jobs]
+        outcomes += [_classify(llm, task, variant) for task, variant, _ in policy_jobs]
+
+    # first len(jobs) outcomes are strategy runs, the rest are policy classifications
+    strategy_outcomes = outcomes[: len(jobs)]
+    policy_outcomes = outcomes[len(jobs) :]
 
     by_key: dict[tuple[str, str], list[dict]] = {}
-    for (task, strategy, _), sample in zip(jobs, outcomes):
+    for (task, strategy, _), sample in zip(jobs, strategy_outcomes):
         by_key.setdefault((task["id"], strategy), []).append(sample)
+
+    policy_by_key: dict[tuple[str, str], list[dict]] = {}
+    for (task, variant, _), sample in zip(policy_jobs, policy_outcomes):
+        policy_by_key.setdefault((task["id"], variant), []).append(sample)
 
     for task in tasks:
         entry: dict[str, Any] = {
@@ -164,15 +175,9 @@ def run_eval(
         for strategy in strategies:
             entry["runs"][strategy] = {"samples": by_key.get((task["id"], strategy), [])}
 
-        policy_samples: dict[str, list] = {v: [] for v in policy_variants}
-        for _ in range(runs):
-            for variant in policy_variants:
-                try:
-                    policy = HybridPolicy(llm, variant=variant).analyze(task["task"])
-                    policy_samples[variant].append({"strategy": policy.strategy, "source": policy.source})
-                except Exception as exc:  # noqa: BLE001
-                    policy_samples[variant].append({"strategy": "error", "source": "error", "error": str(exc)[:100]})
-        entry["policy"] = {v: {"samples": samples} for v, samples in policy_samples.items()}
+        entry["policy"] = {
+            variant: {"samples": policy_by_key.get((task["id"], variant), [])} for variant in policy_variants
+        }
 
         rule = RulePolicy().analyze(task["task"])
         entry["rule_policy"] = {"strategy": rule.strategy, "source": "rule"}
@@ -180,6 +185,15 @@ def run_eval(
         if on_task:
             on_task(task)
     return results
+
+
+def _classify(llm: Any, task: dict, variant: str) -> dict:
+    """One policy classification sample; never raises."""
+    try:
+        policy = HybridPolicy(llm, variant=variant).analyze(task["task"])
+        return {"strategy": policy.strategy, "source": policy.source}
+    except Exception as exc:  # noqa: BLE001
+        return {"strategy": "error", "source": "error", "error": str(exc)[:100]}
 
 
 def load_tasks(category: str | None = None, limit: int | None = None) -> list[dict]:

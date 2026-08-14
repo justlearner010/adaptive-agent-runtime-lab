@@ -82,6 +82,33 @@ def test_metrics_from_trace():
     assert m == {"llm_calls": 2, "tokens": 150, "latency_ms": 800, "tool_calls": 2, "tool_failures": 1, "spawns": 1}
 
 
+# --- run_eval (parallel policy classification, no real LLM) ---
+
+def test_run_eval_parallel_includes_policy_and_rule():
+    from eval.runner import run_eval
+
+    class FakeLLM:
+        def chat(self, messages, max_tokens=None, retries=3, response_format=None):
+            return "Final Answer: 4", {"ms": 1, "tokens": 5}
+
+        def chat_json(self, messages, max_tokens=None, retries=1, structured=True):
+            return {"strategy": "direct", "complexity": "low", "tools_needed": [], "reasoning": "x"}, {"ms": 1, "tokens": 5}
+
+    tasks = [
+        {"id": "math-01", "category": "math", "task": "calculate 23 * 47 + 12", "expected": "1093"},
+        {"id": "search-01", "category": "search", "task": "search the corpus for what react is", "must_contain": ["interleaves", "reasoning"]},
+    ]
+    results = run_eval(FakeLLM(), tasks, strategies=["direct", "react"], runs=2, workers=2, policy_variants=["p0", "p1"])
+
+    assert len(results["tasks"]) == 2
+    t0 = results["tasks"][0]
+    assert len(t0["runs"]["direct"]["samples"]) == 2
+    assert len(t0["runs"]["react"]["samples"]) == 2
+    for variant in ("p0", "p1"):
+        assert [s["strategy"] for s in t0["policy"][variant]["samples"]] == ["direct", "direct"]
+    assert t0["rule_policy"]["strategy"] == "react"  # "calculate" triggers the math rule
+
+
 # --- report aggregation ---
 
 def _samples(*corrects, calls=1, tokens=10):
