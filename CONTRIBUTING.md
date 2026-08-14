@@ -20,7 +20,7 @@
 
 - [ ] 分支命名：`issue-<编号>-<短描述>`（如 `issue-12-search-api`）
 - [ ] 标题：`<type>: <summary>`，type ∈ feat/fix/docs/refactor/test/chore
-- [ ] 描述按 [PR 模板](../.github/pull_request_template.md) 填写，其中：
+- [ ] 描述按 [PR 模板](.github/pull_request_template.md) 填写，其中：
   - [ ] `Closes #<编号>` 指向对应 Issue（未关联的 PR 不予合并）
   - [ ] 动机、改动清单、影响面
   - [ ] 验证证据：`pytest` 结果、demo 输出
