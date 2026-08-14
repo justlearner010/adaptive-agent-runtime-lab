@@ -1,10 +1,10 @@
-"""Eval runner: force each strategy over each task, collect metrics from trace.
+"""Eval runner: force each strategy over each task N times, collect metrics.
 
 Usage:
-    python -m eval.runner --limit 6            # smoke: 6 tasks x 3 strategies
-    python -m eval.runner                      # full run
-    python -m eval.runner --tasks subagent     # only one category
-    python -m eval.runner --strategies react,subagent
+    python -m eval.runner --runs 3 --limit 6     # smoke: 6 tasks, 3 samples each
+    python -m eval.runner --runs 5 --workers 4    # full run, parallel
+    python -m eval.runner --category math --runs 5
+    python -m eval.runner --strategies react,subagent --runs 3
 """
 
 from __future__ import annotations
@@ -13,9 +13,10 @@ import argparse
 import json
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from executors import Answer
 from llm import LLM
@@ -86,29 +87,69 @@ def metrics_from_trace(events: list[dict]) -> dict[str, Any]:
     }
 
 
+# --- single run ----------------------------------------------------------------------
+
+def run_once(llm: LLM, task: dict, strategy: str) -> dict[str, Any]:
+    """One (task, strategy) execution. Returns sample metrics; never raises."""
+    trace = Trace()
+    start = time.monotonic()
+    try:
+        _, answer = run_pipeline(task["task"], llm, force_strategy=strategy, trace=trace)
+        events = trace.to_dict()
+        return {
+            "correct": is_correct(task, answer, events, strategy),
+            "answer": answer.text[:300],
+            "wall_ms": round((time.monotonic() - start) * 1000),
+            **metrics_from_trace(events),
+        }
+    except Exception as exc:  # noqa: BLE001 - a broken strategy must not kill the eval
+        return {
+            "correct": False,
+            "error": str(exc)[:200],
+            "wall_ms": round((time.monotonic() - start) * 1000),
+            "llm_calls": 0,
+            "tokens": 0,
+            "latency_ms": 0,
+            "tool_calls": 0,
+            "tool_failures": 0,
+            "spawns": 0,
+        }
+
+
 # --- runner --------------------------------------------------------------------------
-
-def _empty_run(error: str) -> dict[str, Any]:
-    return {
-        "correct": False,
-        "error": error[:200],
-        "wall_ms": 0,
-        "llm_calls": 0,
-        "tokens": 0,
-        "latency_ms": 0,
-        "tool_calls": 0,
-        "tool_failures": 0,
-        "spawns": 0,
-    }
-
 
 def run_eval(
     llm: LLM,
     tasks: list[dict],
     strategies: list[str],
-    on_task=None,
+    runs: int = 1,
+    workers: int = 1,
+    on_task: Callable[[dict], None] | None = None,
 ) -> dict[str, Any]:
+    """Run each (task, strategy) `runs` times, optionally in parallel.
+
+    Result shape per task:
+        runs[strategy] = {"samples": [sample, ...]}
+        policy = {"samples": [{"strategy", "source"}, ...]}   # N classifications
+        rule_policy = {"strategy": "rule"}
+    """
     results: dict[str, Any] = {"tasks": []}
+    jobs = [(task, strategy, i) for task in tasks for strategy in strategies for i in range(runs)]
+
+    def _submit(executor: ThreadPoolExecutor) -> list:
+        return [executor.submit(run_once, llm, task, strategy) for task, strategy, _ in jobs]
+
+    if workers > 1 and len(jobs) > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = _submit(pool)
+            outcomes = [f.result() for f in futures]
+    else:
+        outcomes = [run_once(llm, task, strategy) for task, strategy, _ in jobs]
+
+    by_key: dict[tuple[str, str], list[dict]] = {}
+    for (task, strategy, _), sample in zip(jobs, outcomes):
+        by_key.setdefault((task["id"], strategy), []).append(sample)
+
     for task in tasks:
         entry: dict[str, Any] = {
             "id": task["id"],
@@ -119,25 +160,16 @@ def run_eval(
             "rule_policy": {},
         }
         for strategy in strategies:
-            trace = Trace()
-            start = time.monotonic()
-            try:
-                _, answer = run_pipeline(task["task"], llm, force_strategy=strategy, trace=trace)
-                events = trace.to_dict()
-                entry["runs"][strategy] = {
-                    "correct": is_correct(task, answer, events, strategy),
-                    "answer": answer.text[:300],
-                    "wall_ms": round((time.monotonic() - start) * 1000),
-                    **metrics_from_trace(events),
-                }
-            except Exception as exc:  # noqa: BLE001 - a broken strategy must not kill the whole eval
-                entry["runs"][strategy] = _empty_run(str(exc))
+            entry["runs"][strategy] = {"samples": by_key.get((task["id"], strategy), [])}
 
-        try:
-            policy = HybridPolicy(llm).analyze(task["task"])
-            entry["policy"] = {"strategy": policy.strategy, "source": policy.source}
-        except Exception as exc:  # noqa: BLE001
-            entry["policy"] = {"strategy": "error", "source": "error", "error": str(exc)[:100]}
+        policy_samples = []
+        for _ in range(runs):
+            try:
+                policy = HybridPolicy(llm).analyze(task["task"])
+                policy_samples.append({"strategy": policy.strategy, "source": policy.source})
+            except Exception as exc:  # noqa: BLE001
+                policy_samples.append({"strategy": "error", "source": "error", "error": str(exc)[:100]})
+        entry["policy"] = {"samples": policy_samples}
 
         rule = RulePolicy().analyze(task["task"])
         entry["rule_policy"] = {"strategy": rule.strategy, "source": "rule"}
@@ -169,6 +201,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=None, help="run at most N tasks")
     parser.add_argument("--category", default=None, choices=["math", "search", "direct", "subagent"])
     parser.add_argument("--strategies", default=",".join(STRATEGIES), help="comma-separated strategies")
+    parser.add_argument("--runs", type=int, default=1, help="samples per (task, strategy)")
+    parser.add_argument("--workers", type=int, default=1, help="parallel worker count")
     args = parser.parse_args(argv)
 
     from env import load_dotenv
@@ -178,8 +212,12 @@ def main(argv: list[str] | None = None) -> int:
     tasks = load_tasks(category=args.category, limit=args.limit)
     strategies = [s.strip() for s in args.strategies.split(",") if s.strip()]
 
-    print(f"running {len(tasks)} tasks x {len(strategies)} strategies ...")
-    results = run_eval(llm, tasks, strategies, on_task=lambda t: print(f"  done: {t['id']} ({t['category']})", flush=True))
+    total = len(tasks) * len(strategies) * args.runs
+    print(f"running {len(tasks)} tasks x {len(strategies)} strategies x {args.runs} runs = {total} executions ...")
+    results = run_eval(
+        llm, tasks, strategies, runs=args.runs, workers=args.workers,
+        on_task=lambda t: print(f"  done: {t['id']} ({t['category']})", flush=True),
+    )
     path = save_results(results)
     print(f"results -> {path}")
 

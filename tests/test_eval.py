@@ -81,55 +81,93 @@ def test_metrics_from_trace():
 
 # --- report aggregation ---
 
-def _entry(runs, policy="react", rule="react"):
+def _samples(*corrects, calls=1, tokens=10):
+    return {
+        "samples": [
+            {"correct": c, "llm_calls": calls, "tokens": tokens, "latency_ms": 100, "spawns": 0}
+            for c in corrects
+        ]
+    }
+
+
+def _entry(runs, policy_choices=("react", "react"), rule="react"):
     return {
         "id": "t1", "category": "math", "task": "x",
         "runs": runs,
-        "policy": {"strategy": policy, "source": "llm"},
+        "policy": {
+            "samples": [
+                {"strategy": s, "source": ("error" if s == "error" else "llm")}
+                for s in policy_choices
+            ]
+        },
         "rule_policy": {"strategy": rule, "source": "rule"},
     }
 
 
-def test_optimal_strategy_cheapest_correct():
+def test_correct_rate_and_means():
+    from eval.report import correct_rate, sample_mean
+
+    run = _samples(True, True, False, True)  # 3/4 correct
+    assert correct_rate(run) == 0.75
+    assert sample_mean(run, "llm_calls") == 1.0
+
+
+def test_optimal_strategy_highest_rate_then_cheapest():
+    from eval.report import optimal_strategy
+
     entry = _entry({
-        "direct": {"correct": True, "llm_calls": 1, "tokens": 10},
-        "react": {"correct": True, "llm_calls": 3, "tokens": 900},
-        "subagent": {"correct": False, "llm_calls": 5, "tokens": 1200},
+        "direct": _samples(True, True),                    # 100%, cheap
+        "react": _samples(True, True, True),               # 100%, same rate
+        "subagent": _samples(True, False),                 # 50%
     })
+    # direct and react both 100% -> cheapest llm_calls wins (direct has calls=1)
+    entry["runs"]["react"] = _samples(True, True, True, calls=3, tokens=900)
+    entry["runs"]["direct"] = _samples(True, True, calls=1, tokens=10)
     assert optimal_strategy(entry) == "direct"
 
 
 def test_optimal_strategy_tie_breaks_by_tokens():
+    from eval.report import optimal_strategy
+
     entry = _entry({
-        "direct": {"correct": True, "llm_calls": 2, "tokens": 500},
-        "react": {"correct": True, "llm_calls": 2, "tokens": 300},
-        "subagent": {"correct": False, "llm_calls": 1, "tokens": 100},
+        "direct": _samples(True, True, calls=2, tokens=500),
+        "react": _samples(True, True, calls=2, tokens=300),
+        "subagent": _samples(False, False),
     })
     assert optimal_strategy(entry) == "react"
 
 
 def test_optimal_strategy_none_when_unsolved():
-    entry = _entry({
-        "direct": {"correct": False, "llm_calls": 1, "tokens": 1},
-        "react": {"correct": False, "llm_calls": 1, "tokens": 1},
-        "subagent": {"correct": False, "llm_calls": 1, "tokens": 1},
-    })
+    from eval.report import optimal_strategy
+
+    entry = _entry({"direct": _samples(False, False), "react": _samples(False, False), "subagent": _samples(False, False)})
     assert optimal_strategy(entry) is None
 
 
+def test_policy_majority_and_llm_success():
+    from eval.report import policy_llm_success_rate, policy_majority
+
+    entry = _entry({}, policy_choices=("direct", "react", "react", "error"))
+    assert policy_majority(entry) == "react"
+    assert policy_llm_success_rate(entry) == 0.75  # 3 of 4 samples have source=llm
+
+
 def test_agreement_table_counts():
+    from eval.report import agreement_table
+
     results = {"tasks": [
-        _entry({"direct": {"correct": True, "llm_calls": 1, "tokens": 1},
-                "react": {"correct": False, "llm_calls": 2, "tokens": 2},
-                "subagent": {"correct": False, "llm_calls": 3, "tokens": 3}}, policy="direct"),
-        _entry({"direct": {"correct": True, "llm_calls": 1, "tokens": 1},
-                "react": {"correct": True, "llm_calls": 2, "tokens": 2},
-                "subagent": {"correct": False, "llm_calls": 3, "tokens": 3}}, policy="react", rule="direct"),
-        _entry({"direct": {"correct": False, "llm_calls": 1, "tokens": 1},
-                "react": {"correct": False, "llm_calls": 2, "tokens": 2},
-                "subagent": {"correct": False, "llm_calls": 3, "tokens": 3}}),
+        # t1: optimal=direct (both correct, direct cheaper); policy majority=direct -> agree
+        _entry({"direct": _samples(True, True, calls=1, tokens=1),
+                "react": _samples(True, True, calls=2, tokens=2),
+                "subagent": _samples(False, False)}, policy_choices=("direct", "direct"), rule="direct"),
+        # t2: optimal=react (react cheaper); policy majority=direct -> disagree; rule=direct -> disagree
+        _entry({"direct": _samples(True, True, calls=2, tokens=2),
+                "react": _samples(True, True, calls=1, tokens=1),
+                "subagent": _samples(False, False)}, policy_choices=("direct", "direct"), rule="direct"),
+        # t3: unsolved
+        _entry({"direct": _samples(False, False), "react": _samples(False, False), "subagent": _samples(False, False)}),
     ]}
     text = "\n".join(agreement_table(results))
-    assert "policy (Hybrid) 与最优一致率**: 1/2" in text
+    assert "policy (Hybrid, 多数票) 与最优一致率**: 1/2" in text
     assert "rule 与最优一致率**: 1/2" in text
     assert "评测集问题" in text
