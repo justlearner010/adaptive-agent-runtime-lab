@@ -47,6 +47,11 @@ def test_all_empty_responses_give_no_answer_and_warn():
     assert answer.text == "No answer produced."
     warnings = [e for e in trace.to_dict() if e["kind"] == "llm_call" and "warning" in e["data"]]
     assert len(warnings) == 3
+    # retry warnings only while a retry remains; the final attempt marks exhausted
+    retrying = [w["data"]["warning"] for w in warnings if "retrying" in w["data"]["warning"]]
+    exhausted = [w["data"]["warning"] for w in warnings if "exhausted" in w["data"]["warning"]]
+    assert retrying == [f"empty response, retrying (1/2)", f"empty response, retrying (2/2)"]
+    assert exhausted == ["empty response, retries exhausted"]
 
 
 def test_parse_action_valid():

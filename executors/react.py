@@ -137,10 +137,18 @@ def _chat_with_retry(llm, messages: list[dict], max_tokens: int, trace, step: in
         if text.strip():
             trace.record("llm_call", role=f"react/step{step}", **meta)
             return text, meta
-        trace.record(
-            "llm_call",
-            role=f"react/step{step}",
-            **meta,
-            warning=f"empty response, retrying ({attempt + 1}/{MAX_EMPTY_RETRIES + 1})",
-        )
+        if attempt < MAX_EMPTY_RETRIES:
+            trace.record(
+                "llm_call",
+                role=f"react/step{step}",
+                **meta,
+                warning=f"empty response, retrying ({attempt + 1}/{MAX_EMPTY_RETRIES})",
+            )
+        else:
+            trace.record(
+                "llm_call",
+                role=f"react/step{step}",
+                **meta,
+                warning="empty response, retries exhausted",
+            )
     return "", meta
