@@ -6,6 +6,7 @@ Usage:
     python main.py "task text"
     python main.py "task" --model deepseek-chat --base-url https://api.deepseek.com/v1
     python main.py "task" --offline        # rule-based policy, no LLM classification
+    python main.py "task" --force-strategy react   # bypass policy, force an executor
     python main.py "task" --json           # emit machine-readable trace + answer
 """
 
@@ -16,10 +17,17 @@ import json
 import sys
 
 from env import load_dotenv
+from executors import Answer
 from llm import LLM, LLMError
 from router import Router
-from task_analyzer import HybridPolicy, RulePolicy
+from task_analyzer import HybridPolicy, Policy, RulePolicy
 from trace import Trace
+
+
+OFFLINE_PLACEHOLDER = (
+    "(offline mode: no LLM configured; execution skipped. "
+    "Policy decision is shown in the trace above.)"
+)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -29,50 +37,68 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--base-url", default=None, help="override OPENAI_BASE_URL")
     parser.add_argument("--model", default=None, help="override OPENAI_MODEL")
     parser.add_argument("--offline", action="store_true", help="use rule-based policy only (no LLM classification)")
+    parser.add_argument(
+        "--force-strategy",
+        choices=["direct", "react", "subagent"],
+        default=None,
+        help="bypass policy and force an execution strategy",
+    )
     parser.add_argument("--json", action="store_true", dest="json_out", help="emit trace + answer as JSON")
     return parser.parse_args(argv)
+
+
+def run_pipeline(
+    task: str,
+    llm: LLM | None,
+    force_strategy: str | None = None,
+    trace: Trace | None = None,
+) -> tuple[Policy, Answer]:
+    """Run Task -> Policy -> Execution Strategy. Shared by CLI and eval runner.
+
+    Returns (policy, answer); the same trace object is populated in place.
+    """
+    trace = trace or Trace()
+
+    if force_strategy is not None:
+        policy = Policy(force_strategy, "n/a", [], "forced by --force-strategy", "forced")
+    elif llm is None:
+        policy = RulePolicy().analyze(task)
+    else:
+        policy = HybridPolicy(llm).analyze(task)
+    trace.record("policy", **policy.as_dict())
+
+    router = Router()
+    if llm is None:
+        if policy.strategy != "direct":
+            trace.record("dispatch", executor="direct", warning=f"offline: {policy.strategy} downgraded to direct (no LLM)")
+        answer = Answer(text=OFFLINE_PLACEHOLDER, strategy=policy.strategy, steps=0)
+    else:
+        answer = router.route(task, policy, llm, trace)
+
+    trace.record("finish", strategy=answer.strategy, answer_chars=len(answer.text))
+    return policy, answer
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     load_dotenv()  # optional: read OPENAI_* from project .env, env vars still win
-    trace = Trace()
 
     try:
         llm = LLM(api_key=args.api_key, base_url=args.base_url, model=args.model)
     except LLMError as exc:
-        if args.offline:
+        if args.offline and args.force_strategy is None:
             llm = None
         else:
             print(f"error: {exc}", file=sys.stderr)
             print("hint: pass --offline to run with rule-based policy and no LLM calls.", file=sys.stderr)
             return 1
 
-    # 1) Task -> Policy
-    if llm is None or args.offline:
-        policy = RulePolicy().analyze(args.task)
-    else:
-        policy = HybridPolicy(llm).analyze(args.task)
-    trace.record("policy", **policy.as_dict())
+    if args.force_strategy is not None and llm is None:
+        print("error: --force-strategy requires an LLM (drop --offline)", file=sys.stderr)
+        return 1
 
-    # 2) Policy -> Execution Strategy
-    router = Router()
-    if llm is None:
-        if policy.strategy != "direct":
-            trace.record("dispatch", executor="direct", warning=f"offline: {policy.strategy} downgraded to direct (no LLM)")
-        from executors import Answer
-
-        answer = Answer(
-            text="(offline mode: no LLM configured; execution skipped. "
-            "Policy decision is shown in the trace above.)",
-            strategy=policy.strategy,
-            steps=0,
-        )
-    else:
-        answer = router.route(args.task, policy, llm, trace)
-
-    # 3) report
-    trace.record("finish", strategy=answer.strategy, answer_chars=len(answer.text))
+    trace = Trace()
+    policy, answer = run_pipeline(args.task, llm, force_strategy=args.force_strategy, trace=trace)
 
     if args.json_out:
         payload = {
