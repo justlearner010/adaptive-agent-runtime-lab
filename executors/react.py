@@ -38,20 +38,37 @@ Never invent tool results. Never answer before using tools if the task
 requires information you do not have (e.g. calculations, corpus facts).
 """
 
-_ACTION_RE = re.compile(r"Action:\s*(\{.*\})", re.DOTALL)
+def _extract_action(text: str) -> dict | None:
+    """Find the first parseable 'Action: {...}' JSON object.
+
+    Scans for `Action:` markers and matches braces (handling nested braces),
+    instead of a greedy regex that can swallow trailing text or multiple
+    actions and then fail to parse — which silently degraded the whole
+    transcript into a "final answer" without ever calling the tool.
+    """
+    for match in re.finditer(r"Action:\s*\{", text):
+        start = match.end() - 1  # position of the opening '{'
+        depth = 0
+        for i in range(start, len(text)):
+            ch = text[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start : i + 1]
+                    try:
+                        payload = json.loads(candidate)
+                    except json.JSONDecodeError:
+                        break  # invalid inside this block; try the next Action marker
+                    if isinstance(payload, dict) and isinstance(payload.get("tool"), str):
+                        return payload
+                    break
+    return None
 
 
 def _parse_action(text: str) -> dict | None:
-    match = _ACTION_RE.search(text)
-    if not match:
-        return None
-    try:
-        payload = json.loads(match.group(1))
-    except json.JSONDecodeError:
-        return None
-    if isinstance(payload, dict) and isinstance(payload.get("tool"), str):
-        return payload
-    return None
+    return _extract_action(text)
 
 
 class ReactExecutor:
