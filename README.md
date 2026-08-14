@@ -28,6 +28,26 @@ task ──▶ task_analyzer (Policy) ──▶ router ──▶ executor
 - 采集结构化 trace 数据，为后续「学习式 Policy」（v5）铺路；
 - 顺带验证运行时机制本身（ReAct 循环、subagent 委托）的健壮性。
 
+### 执行策略定义
+
+三种策略是"LLM 被调用的方式 / 循环深度"的三种形态（机制谱系详见 [RESEARCH.md](RESEARCH.md) §2）：
+
+- **Direct（直接执行）**：**单次 LLM 调用、无工具、无循环**——模型仅凭自身知识直接产出答案。
+  成本 = 1 次调用；能力上限 = 模型本身；典型失败 = 知识不足 / 心算错误。
+  适用：常识问答、简单算术、总结/对比等不需要外部信息的任务。
+
+- **ReAct（推理-行动循环）**：*ReAct: Synergizing Reasoning and Acting in Language Models*
+  （Yao et al., 2022）。循环 `Thought -> Action(调用工具) -> Observation(回填结果) -> ... -> Final Answer`，
+  **单一上下文**：每一步的工具观测都追加进同一条对话，上下文随步数膨胀。
+  成本 = 2..N 次调用；典型失败 = 循环漂移、步数上限（max_steps）、上下文膨胀。
+  适用：需要工具（计算/搜索/读文档）的单线程任务。
+
+- **Subagent（子代理委托）**：planner 先把任务**分解**成独立子任务，每个子任务交给一个
+  **隔离上下文**的全新 ReAct 循环执行（v2 起 worker 可并行），最后 synthesizer 合成最终答案。
+  父上下文不被子任务污染，但总调用 = 分解 + 各子任务 + 合成，开销更大。
+  典型失败 = 分解错误、合成丢失、worker 空输出。
+  适用：可分解 / 可并行 / 长内容任务（如长文档分块、并行调研）。
+
 ### 方法论
 
 - **评测 harness**（`eval/`）：对每个任务**强制**跑全部策略 × N 次采样（默认 N=5），
@@ -48,7 +68,8 @@ task ──▶ task_analyzer (Policy) ──▶ router ──▶ executor
 | Phase 1 | 评测 harness + N=5 多采样 + 并行执行 | [EXPERIMENT-001/002](eval/EXPERIMENT-001.md) |
 | Phase 2 | 分类可靠性专项：prompt 变体 p0/p1/p2、结构化输出、chain 任务 | [EXPERIMENT-003](eval/EXPERIMENT-003.md) |
 | Phase 3 | 判定器修复、ReAct 健壮性、subagent 泄漏、并行分类、退化基线 + 全量重测 | [EXPERIMENT-004](eval/EXPERIMENT-004.md) |
-| v2+ | 真实搜索 API、流式、并行 subagent / Plan-and-Execute / 学习式 Policy | Roadmap，未开始 |
+| v2 | 测量面扩展：longdoc 评测类、并行 subagent、LLM-as-judge、分类稳定性（confidence） | [#34](https://github.com/justlearner010/adaptive-agent-runtime-lab/pull/34)，报告待写 |
+| v3+ | 结论归因与统计检验（规划）/ 难度任务 / 真实工具 / 学习式 Policy | Roadmap，未开始 |
 
 ### 暂时结论（截至 EXPERIMENT-004，单模型 deepseek-v4-flash）
 
@@ -66,11 +87,11 @@ task ──▶ task_analyzer (Policy) ──▶ router ──▶ executor
 ### 限制（诚实声明）
 
 - **单模型、单轮任务**：无跨模型泛化性，无多轮/长上下文任务；
-- **判定器是近似**：关键词 + 5-gram grounding 对轻度改写敏感；LLM-as-judge 未实现；
-- **评测集小且同质**：40 任务 × 5 类，缺少真正需要 subagent 的任务；
+- **判定器是近似**：关键词 + 5-gram grounding 对轻度改写敏感；LLM-as-judge（v2）已实现但未大规模重放验证；
+- **评测集小且同质**：48 任务 × 6 类（v2 新增 longdoc），每类仅 8 个；longdoc 尚未全量评测；
 - **混杂因素**：EXPERIMENT-004 中模型变更与判定器修复叠加，无法单因素归因；
 - **成本导向的 optimal**：未纳入答案质量与失败风险；
-- 全量评测约 70 分钟 / 数元 API 费用（4 workers，模型延迟主导）。
+- 全量评测约 70 分钟+ / 数元 API 费用（4 workers，模型延迟主导）。
 
 研究背景与机制对比见 [RESEARCH.md](RESEARCH.md)。
 
