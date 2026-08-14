@@ -136,3 +136,61 @@ def test_retries_exhausted_raises():
     with pytest.raises(LLMError):
         llm.chat([{"role": "user", "content": "hi"}], retries=2)
     assert comp.calls == 3
+
+
+# --- structured output (response_format) fallback ---
+
+class _FormatRejectingCompletions:
+    """Rejects response_format (400), succeeds without it."""
+
+    def __init__(self, content: str) -> None:
+        self._content = content
+        self.calls: list[dict] = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs.get("response_format"))
+        if kwargs.get("response_format"):
+            raise _StatusError(400)
+        return _Resp(self._content)
+
+
+class _FormatRejectingClient:
+    def __init__(self, completions: _FormatRejectingCompletions) -> None:
+        self.chat = _Chat(completions)
+
+
+def test_structured_output_falls_back_when_rejected():
+    llm = LLM(api_key="test-key")
+    comp = _FormatRejectingCompletions('{"ok": true}')
+    llm._client = _FormatRejectingClient(comp)  # type: ignore[attr-defined]
+
+    parsed, _ = llm.chat_json([{"role": "user", "content": "task"}], structured=True)
+
+    assert parsed == {"ok": True}
+    assert comp.calls == [{"type": "json_object"}, None]  # attempted with format, then without
+
+
+def test_structured_output_used_when_supported():
+    llm = LLM(api_key="test-key")
+
+    class _OkCompletions:
+        def __init__(self, content: str) -> None:
+            self._content = content
+            self.calls = 0
+
+        def create(self, **kwargs):
+            self.calls += 1
+            assert kwargs.get("response_format") == {"type": "json_object"}
+            return _Resp(self._content)
+
+    ok = _OkCompletions('{"ok": true}')
+
+    class _Client:
+        def __init__(self, completions):
+            self.chat = _Chat(completions)
+
+    llm._client = _Client(ok)  # type: ignore[attr-defined]
+
+    parsed, _ = llm.chat_json([{"role": "user", "content": "task"}], structured=True)
+    assert parsed == {"ok": True}
+    assert ok.calls == 1
