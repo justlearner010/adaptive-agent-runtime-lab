@@ -67,8 +67,10 @@ class SubagentExecutor:
             worker = ReactExecutor(max_steps=self.max_steps_per_agent)
             answer = worker.execute(prompt, llm, trace)
             reports.append(f"[{title}]\n{prompt}\n-> {answer.text}")
-            # fallback path keeps only title + answer, never the internal prompt
-            fallback_parts.append(f"[{title}]\n{answer.text}")
+            # fallback keeps only the answer; the title is a label only when it
+            # did NOT double as the worker prompt (no internal instruction leaks)
+            label = f"[{title}]" if subtask.get("prompt") else ""
+            fallback_parts.append(f"{label}\n{answer.text}".strip())
 
         # 3) synthesize
         text, meta = llm.chat(
