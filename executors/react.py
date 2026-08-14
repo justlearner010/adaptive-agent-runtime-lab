@@ -71,8 +71,7 @@ class ReactExecutor:
 
         while step < self.max_steps:
             step += 1
-            text, meta = llm.chat(messages, max_tokens=500)
-            trace.record("llm_call", role=f"react/step{step}", **meta)
+            text, meta = _chat_with_retry(llm, messages, max_tokens=500, trace=trace, step=step)
             trace.record("step", n=step, max_steps=self.max_steps, summary=text[:80].replace("\n", " "))
 
             action = _parse_action(text)
@@ -121,3 +120,35 @@ def _parse_args(raw: str) -> dict:
     if isinstance(parsed, dict):
         return parsed
     return {"input": raw}
+
+
+MAX_EMPTY_RETRIES = 2
+
+
+def _chat_with_retry(llm, messages: list[dict], max_tokens: int, trace, step: int) -> tuple[str, dict]:
+    """Chat, retrying empty/whitespace-only completions.
+
+    The model occasionally returns an empty completion (truncated reasoning);
+    without this the loop would silently degrade to "No answer produced.".
+    Every attempt is traced as an llm_call event, with a warning on retries.
+    """
+    for attempt in range(MAX_EMPTY_RETRIES + 1):
+        text, meta = llm.chat(messages, max_tokens=max_tokens)
+        if text.strip():
+            trace.record("llm_call", role=f"react/step{step}", **meta)
+            return text, meta
+        if attempt < MAX_EMPTY_RETRIES:
+            trace.record(
+                "llm_call",
+                role=f"react/step{step}",
+                **meta,
+                warning=f"empty response, retrying ({attempt + 1}/{MAX_EMPTY_RETRIES})",
+            )
+        else:
+            trace.record(
+                "llm_call",
+                role=f"react/step{step}",
+                **meta,
+                warning="empty response, retries exhausted",
+            )
+    return "", meta
