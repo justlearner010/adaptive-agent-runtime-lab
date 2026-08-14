@@ -176,6 +176,29 @@ def agreement_table(results: dict[str, Any], variant: str = "p0") -> list[str]:
     return lines
 
 
+def baseline_table(results: dict[str, Any]) -> list[str]:
+    """Degenerate-baseline agreement rates, as a reference frame for the
+    policy's majority-vote agreement (issue #19).
+
+    With most tasks optimal=direct, "always-direct" alone reaches a high
+    agreement; the policy's agreement is only meaningful relative to these
+    baselines.
+    """
+    tasks = results["tasks"]
+    total = sum(1 for t in tasks if optimal_strategy(t) is not None)
+    lines = ["## 退化基线一致率（参照系：多数票一致率应显著高于它们）", "", "| 策略 | 一致率 |", "|---|---|"]
+    for s in STRATEGIES:
+        agree = sum(1 for t in tasks if optimal_strategy(t) == s)
+        lines.append(f"| always-{s} | {agree}/{total} |")
+    rule_agree = sum(
+        1
+        for t in tasks
+        if optimal_strategy(t) is not None and t.get("rule_policy", {}).get("strategy") == optimal_strategy(t)
+    )
+    lines.append(f"| rule（现状兜底） | {rule_agree}/{total} |")
+    return lines
+
+
 def render_report(results: dict[str, Any]) -> str:
     variants = sorted({v for t in results["tasks"] for v in t.get("policy", {})})
     default = variants[0] if variants else "p0"
@@ -190,5 +213,7 @@ def render_report(results: dict[str, Any]) -> str:
         stability_table(results, variant=default),
         [""],
         agreement_table(results, variant=default),
+        [""],
+        baseline_table(results),
     ]
     return "\n".join(line for section in sections for line in section)
