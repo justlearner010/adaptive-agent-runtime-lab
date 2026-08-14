@@ -79,6 +79,34 @@ def test_valid_json_first_try_no_retry():
     assert completions.calls == 1
 
 
+# --- empty completion retry (v2: reasoning models return empty content) ---
+
+def test_empty_completion_is_retried():
+    llm, completions = _llm_with(["", "ok"])
+
+    text, _ = llm.chat([{"role": "user", "content": "hi"}], retries=3)
+
+    assert text == "ok"
+    assert completions.calls == 2
+
+
+def test_persistent_empty_completion_raises():
+    llm, completions = _llm_with(["", "", ""])
+
+    with pytest.raises(LLMError):
+        llm.chat([{"role": "user", "content": "hi"}], retries=2)
+    assert completions.calls == 3
+
+
+def test_empty_then_valid_json_recovers_in_chat_json():
+    llm, completions = _llm_with(["", '{"ok": true}'])
+
+    parsed, _ = llm.chat_json([{"role": "user", "content": "task"}])
+
+    assert parsed == {"ok": True}
+    assert completions.calls == 2
+
+
 # --- transient error retry (429/5xx) ---
 
 class _StatusError(Exception):

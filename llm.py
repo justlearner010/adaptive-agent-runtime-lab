@@ -66,8 +66,11 @@ class LLM:
     ) -> tuple[str, dict[str, Any]]:
         """Single non-streaming completion. Returns (text, meta).
 
-        Transient provider errors (429 / 5xx) are retried with exponential
-        backoff; other errors surface immediately.
+        Transient provider errors (429 / 5xx) and empty completions are
+        retried with exponential backoff; other errors surface immediately.
+        Empty completions happen when the model's reasoning consumes the
+        token budget (common with reasoning models at small max_tokens) —
+        they are indistinguishable from a transient hiccup, so retry them.
         """
         start = time.monotonic()
         last_exc: Exception | None = None
@@ -82,6 +85,12 @@ class LLM:
                 text = resp.choices[0].message.content or ""
                 usage = resp.usage
                 tokens = usage.total_tokens if usage else None
+                if not text.strip():
+                    last_exc = LLMError("empty completion")
+                    if attempt >= retries:
+                        break
+                    time.sleep(min(2**attempt, 8) + random.uniform(0, 0.5))
+                    continue
                 return text, {"ms": round((time.monotonic() - start) * 1000), "tokens": tokens}
             except Exception as exc:  # noqa: BLE001 - surface provider errors as LLMError
                 last_exc = exc

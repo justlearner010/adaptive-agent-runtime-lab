@@ -71,6 +71,13 @@ def policy_llm_success_rate(entry: dict[str, Any], variant: str = "p0") -> float
     return sum(1 for s in samples if s.get("source") == "llm") / len(samples)
 
 
+def policy_mean_confidence(entry: dict[str, Any], variant: str = "p0") -> float | None:
+    """Mean self-reported confidence over successful LLM classifications (v2)."""
+    samples = entry.get("policy", {}).get(variant, {}).get("samples") or []
+    confs = [s.get("confidence") for s in samples if isinstance(s.get("confidence"), (int, float))]
+    return statistics.mean(confs) if confs else None
+
+
 # --- tables ---------------------------------------------------------------------------
 
 def _pct(ok: int, total: int) -> str:
@@ -114,7 +121,7 @@ def cost_table(results: dict[str, Any]) -> list[str]:
 
 
 def stability_table(results: dict[str, Any], variant: str = "p0") -> list[str]:
-    lines = [f"## Policy 稳定性（N 次分类，prompt 变体 {variant}）", "", "| id | category | 选择分布 | llm成功率 |", "|---|---|---|---|"]
+    lines = [f"## Policy 稳定性（N 次分类，prompt 变体 {variant}）", "", "| id | category | 选择分布 | llm成功率 | 平均confidence |", "|---|---|---|---|---|"]
     for t in results["tasks"]:
         samples = t.get("policy", {}).get(variant, {}).get("samples") or []
         choices = [s.get("strategy") for s in samples]
@@ -122,7 +129,9 @@ def stability_table(results: dict[str, Any], variant: str = "p0") -> list[str]:
         if not dist:
             dist = "error"
         success = policy_llm_success_rate(t, variant)
-        lines.append(f"| {t['id']} | {t['category']} | {dist} | {f'{success*100:.0f}%' if success is not None else '-'} |")
+        conf = policy_mean_confidence(t, variant)
+        conf_cell = f"{conf:.2f}" if conf is not None else "-"
+        lines.append(f"| {t['id']} | {t['category']} | {dist} | {f'{success*100:.0f}%' if success is not None else '-'} | {conf_cell} |")
     return lines
 
 
