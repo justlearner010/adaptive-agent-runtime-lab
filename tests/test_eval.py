@@ -199,3 +199,25 @@ def test_agreement_table_counts():
     assert "policy (Hybrid, 多数票) 与最优一致率**: 1/2" in text
     assert "rule 与最优一致率**: 1/2" in text
     assert "评测集问题" in text
+
+
+def test_baseline_table_against_optimal():
+    from eval.report import baseline_table
+
+    results = {"tasks": [
+        # t1: optimal=direct, rule=direct -> rule agrees
+        _entry({"direct": _samples(True, True, calls=1, tokens=1),
+                "react": _samples(True, True, calls=2, tokens=2),
+                "subagent": _samples(False, False)}, rule="direct"),
+        # t2: optimal=react, rule=direct -> rule disagrees
+        _entry({"direct": _samples(True, True, calls=2, tokens=2),
+                "react": _samples(True, True, calls=1, tokens=1),
+                "subagent": _samples(False, False)}, rule="direct"),
+        # t3: unsolved -> excluded from the denominator
+        _entry({"direct": _samples(False, False), "react": _samples(False, False), "subagent": _samples(False, False)}),
+    ]}
+    text = "\n".join(baseline_table(results))
+    assert "| always-direct | 1/2 |" in text
+    assert "| always-react | 1/2 |" in text
+    assert "| always-subagent | 0/2 |" in text
+    assert "| rule（现状兜底） | 1/2 |" in text
