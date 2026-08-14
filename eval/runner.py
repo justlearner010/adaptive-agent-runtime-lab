@@ -64,23 +64,31 @@ def _ngrams(text: str, n: int = 5) -> set[str]:
     return {" ".join(words[i : i + n]) for i in range(len(words) - n + 1)}
 
 
-def search_grounded(answer: str, corpus_texts: list[str]) -> bool:
-    """True if the answer quotes a corpus n-gram (i.e. really used the corpus).
+def search_grounded(answer: str, corpus_texts: list[str], terms: list[str]) -> bool:
+    """True if the answer quotes corpus text for EVERY required term.
 
-    Keyword hits from generic model knowledge (e.g. "calculator … arithmetic")
-    must not count as a solved search task; a faithful answer quotes the corpus.
+    A single n-gram from any document is not enough: multi-topic tasks
+    (e.g. must_contain ["calculator", "compaction"]) must show grounded
+    evidence for each requested fact, or a generic mention plus one quote
+    would pass. Keyword hits from generic model knowledge (e.g. "calculator
+    … arithmetic") must not count as a solved search task.
     """
     answer_grams = _ngrams(answer)
-    return any(answer_grams & _ngrams(doc) for doc in corpus_texts)
+    for term in terms:
+        docs = [doc for doc in corpus_texts if term.lower() in doc.lower()]
+        if not any(answer_grams & _ngrams(doc) for doc in docs):
+            return False
+    return True
 
 
 def is_correct(task: dict, answer: Answer, events: list[dict], strategy: str) -> bool:
     if task["category"] in ("math", "chain"):
         return math_correct(answer.text, task["expected"])
     if task["category"] == "search":
-        # keywords + grounding: the answer must actually cite the corpus
+        # keywords + per-term grounding: the answer must cite the corpus
+        # for every requested fact
         return keyword_correct(answer.text, task.get("must_contain", [])) and search_grounded(
-            answer.text, _CORPUS_TEXTS
+            answer.text, _CORPUS_TEXTS, task.get("must_contain", [])
         )
     if task["category"] == "subagent":
         # judged on the answer alone; mechanism fidelity (>=2 spawns) is a

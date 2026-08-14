@@ -39,10 +39,27 @@ def test_keyword_correct_case_insensitive():
 def test_search_grounded():
     corpus = ["ReAct interleaves reasoning steps (Thought) and tool calls (Action) with observations."]
     # quoting the corpus -> grounded
-    assert search_grounded("ReAct interleaves reasoning steps (Thought) and tool calls", corpus)
+    assert search_grounded(
+        "ReAct interleaves reasoning steps (Thought) and tool calls", corpus, ["interleaves", "reasoning"]
+    )
     # generic knowledge without corpus text -> not grounded
-    assert not search_grounded("ReAct combines thinking and acting with tools", corpus)
-    assert not search_grounded("", corpus)
+    assert not search_grounded("ReAct combines thinking and acting with tools", corpus, ["interleaves"])
+    assert not search_grounded("", corpus, ["interleaves"])
+
+
+def test_search_grounded_requires_each_term():
+    corpus = [
+        "The calculator tool evaluates arithmetic expressions safely via an AST whitelist.",
+        "Compaction summarizes long conversations to keep the context window bounded.",
+    ]
+    both = (
+        "The calculator tool evaluates arithmetic expressions. "
+        "Compaction summarizes long conversations to keep the context window bounded."
+    )
+    assert search_grounded(both, corpus, ["calculator", "compaction"])
+    # quoting only one requested doc while mentioning the other generically must fail
+    partial = "The calculator tool evaluates arithmetic expressions. Compaction is useful."
+    assert not search_grounded(partial, corpus, ["calculator", "compaction"])
 
 
 def test_is_correct_by_category():
