@@ -61,7 +61,7 @@
 
 ## 3. Core Findings (vs. 003)
 
-1. **The checker fix is real and effective**: search direct 20% → **0%** (false positives from common-sense answers matching keywords eliminated); chain at 100% across all three strategies (false hits in the tail-end verification eliminated); subagent-category subagent strategy 45% → **97%** (false hits from the spawns structure check eliminated). The 003 conclusion that "subagent is useless (45%)" was **partly an artifact of checker false hits**; under correct judging, the subagent strategy is not bad — it is merely still the most expensive.
+1. **The checker fix is real and effective**: search direct 20% → **0%** (false positives from common-sense answers matching keywords eliminated); chain at 100% across all three strategies (false negatives in the tail-end verification eliminated); subagent-category subagent strategy 45% → **97%** (false negatives from the spawns structure check eliminated). The 003 conclusion that "subagent is useless (45%)" was **partly an artifact of checker false negatives**; under correct judging, the subagent strategy is not bad — it is merely still the most expensive.
 2. **The model change is the main confound**: deepseek-v4-flash is overall stronger than deepseek-chat (search react 82%→95%, subagent-category react held at 92%, and math direct also had one genuine arithmetic error, 97%). The accuracy gains in 004 cannot be attributed to "checker fix" or "model change" as a single factor.
 3. **The value of the adaptive policy is quantified against baselines for the first time**: p0 92.5% vs. always-direct 77.5%, a 15pp edge (only 5pp in 003); the agreement-rate metric now has discriminative power (the degenerate-baseline table from #19 provides the reference frame).
 4. **The "direct by default" conclusion is more robust under a stronger model**: 95–100% everywhere except search, and at 1 call each; large-number multiplication (math-02) direct 5/5, yet the classifier still leaned react (4/5) — classification bias is decoupled from model capability.
@@ -87,5 +87,5 @@
 ```bash
 source .venv/bin/activate
 python -m eval.runner --runs 5 --workers 4 --policy-variants p0,p1,p2
-# 结果 -> eval/results/<ts>.json（已另存为 FULL-N5-PHASE3.json）
+# results -> eval/results/<ts>.json (also saved as FULL-N5-PHASE3.json)
 ```

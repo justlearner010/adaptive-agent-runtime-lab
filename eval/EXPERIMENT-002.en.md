@@ -66,9 +66,9 @@
 ## Appendix: Reproduction
 
 ```bash
-python -m eval.runner --category math    --runs 5 --workers 4   # 每类 120 次执行
+python -m eval.runner --category math    --runs 5 --workers 4   # 120 executions per category
 python -m eval.runner --category direct  --runs 5 --workers 4
 python -m eval.runner --category search  --runs 5 --workers 4
 python -m eval.runner --category subagent --runs 5 --workers 4
-# 合并四类结果 -> FULL-N5.json 渲染报告
+# merge the four category results -> FULL-N5.json and render the report
 ```

@@ -12,7 +12,7 @@ using the measurements to drive design decisions.
 **How to read (5-minute route for newcomers)**:
 1. [RESEARCH.md](RESEARCH.md) — background: the Agent Runtime mechanism and the taxonomy of the three execution strategies (10 minutes)
 2. The "Experimental Positioning" section of this file — what we did, where we are, conclusions and limitations
-3. [eval/EXPERIMENT-001..004](eval/EXPERIMENT-001.md) — experiment history (deep read as needed)
+3. [eval/EXPERIMENT-001..004](eval/EXPERIMENT-001.en.md) — experiment history (deep read as needed)
 4. [v3-design.md](v3-design.md) — current experiment design (v3: when does SubAgent surpass ReAct)
 
 Exploring how an agent runtime chooses different execution strategies (Execution Strategy) based on task type.
@@ -80,9 +80,9 @@ The three strategies are three variants of "how the LLM is invoked / loop depth"
 | Stage | Content | Experiment/Commit |
 |---|---|---|
 | v1 | Pipeline skeleton + direct/react/subagent + calculator/search + trace | `90cdbb9` |
-| Phase 1 | Evaluation harness + N=5 multi-sampling + parallel execution | [EXPERIMENT-001/002](eval/EXPERIMENT-001.md) |
-| Phase 2 | Classification reliability: prompt variants p0/p1/p2, structured output, chain tasks | [EXPERIMENT-003](eval/EXPERIMENT-003.md) |
-| Phase 3 | Correctness-checker fixes, ReAct robustness, subagent leakage, parallel classification, degenerate baseline + full retest | [EXPERIMENT-004](eval/EXPERIMENT-004.md) |
+| Phase 1 | Evaluation harness + N=5 multi-sampling + parallel execution | [EXPERIMENT-001](eval/EXPERIMENT-001.en.md) / [002](eval/EXPERIMENT-002.en.md) |
+| Phase 2 | Classification reliability: prompt variants p0/p1/p2, structured output, chain tasks | [EXPERIMENT-003](eval/EXPERIMENT-003.en.md) |
+| Phase 3 | Correctness-checker fixes, ReAct robustness, subagent leakage, parallel classification, degenerate baseline + full retest | [EXPERIMENT-004](eval/EXPERIMENT-004.en.md) |
 | v2 | Expanded measurement surface: longdoc evaluation category (real long-document tasks), parallel subagent, LLM-as-judge, classification stability (confidence), LLM-layer empty-output retry | [#34](https://github.com/justlearner010/adaptive-agent-runtime-lab/pull/34) |
 | **v3 (in progress)** | **"When does SubAgent surpass ReAct" boundary evidence**: power analysis, multi-scale longdoc, parallel-structure comparison, hyperparameter sensitivity, trace process evidence | Design finalized in [v3-design.md](v3-design.md); P2 infrastructure in progress |
 | v4+ | Task-form expansion (retrieval / selective reading), difficulty tasks, multi-model, learned Policy | Roadmap, not started |
@@ -162,7 +162,7 @@ AGENTS.md          experiment design decision context (required reading for coll
 |---|---|---|
 | [README.md](README.md) | This file: positioning / quick start / current status | Everyone |
 | [RESEARCH.md](RESEARCH.md) | Background research: Agent Runtime mechanisms, execution strategy taxonomy | Those who want to understand "why" |
-| [eval/EXPERIMENT-001..004](eval/EXPERIMENT-001.md) | Experiment history: four rounds of evaluation and fixes (bilingual CN/EN) | Those who want to reproduce/cite results |
+| [eval/EXPERIMENT-001..004](eval/EXPERIMENT-001.en.md) | Experiment history: four rounds of evaluation and fixes (bilingual CN/EN) | Those who want to reproduce/cite results |
 | [v3-design.md](v3-design.md) | Current experiment design: when does SubAgent surpass ReAct | Those involved in v3 |
 | [AGENTS.md](AGENTS.md) | Experiment design decision context, contribution checks, decision log | All collaborators (including agents) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Collaboration process: Issue -> PR -> Review | Those who want to propose changes |
