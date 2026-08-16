@@ -1,6 +1,21 @@
 # Adaptive Agent Runtime Lab
 
-Exploring how an agent runtime chooses different execution strategies based on task type.
+> [English](README.en.md) | 中文
+
+**What this is**: a **research-oriented experimental project** (not a production system). It answers one question through controlled experiments —
+**"which execution strategy should an AI task use (answer directly / reason while using tools / delegate to subagents) to be both correct and cheap?"**
+To that end it builds a minimal Agent runtime pipeline (`Task -> Policy -> Execution Strategy`) and measures it repeatedly with a self-made evaluation set,
+using the measurements to drive design decisions.
+
+**Who it's for**: researchers interested in "how an Agent runtime chooses execution strategies", and collaborators who want to join the experiments.
+
+**How to read (5-minute route for newcomers)**:
+1. [RESEARCH.md](RESEARCH.md) — background: the Agent Runtime mechanism and the taxonomy of the three execution strategies (10 minutes)
+2. The "Experimental Positioning" section of this file — what we did, where we are, conclusions and limitations
+3. [eval/EXPERIMENT-001..004](eval/EXPERIMENT-001.md) — experiment history (deep read as needed)
+4. [v3-design.md](v3-design.md) — current experiment design (v3: when does SubAgent surpass ReAct)
+
+Exploring how an agent runtime chooses different execution strategies (Execution Strategy) based on task type.
 
 Core pipeline: **Task -> Policy -> Execution Strategy**
 
@@ -9,7 +24,7 @@ task ──▶ task_analyzer (Policy) ──▶ router ──▶ executor
                                               ├── direct   (single LLM call, no tools)
                                               ├── react    (Thought/Action/Observation loop)
                                               └── subagent (decompose -> delegate to subagents -> synthesize)
-                                              └── tools: calculator / search
+                                              └── tools: calculator / search / doc
                                               └── trace:  structured tracing throughout
 ```
 
@@ -25,7 +40,7 @@ design -> implementation -> evaluation -> defect discovery -> fix -> retest, wit
 Answer one core question: **given a task, which execution strategy (direct / react / subagent) is "correct and cheap"?**
 
 - Build the `Task -> Policy -> Execution Strategy` pipeline and quantify each strategy's applicability domain, correctness, and cost;
-- Collect structured trace data to pave the way for the "learned Policy" (v5);
+- Collect structured trace data to pave the way for the future "learned Policy" (v5);
 - Along the way, verify the robustness of the runtime mechanisms themselves (ReAct loop, subagent delegation).
 
 ### Execution Strategy Definitions
@@ -68,19 +83,26 @@ The three strategies are three variants of "how the LLM is invoked / loop depth"
 | Phase 1 | Evaluation harness + N=5 multi-sampling + parallel execution | [EXPERIMENT-001/002](eval/EXPERIMENT-001.md) |
 | Phase 2 | Classification reliability: prompt variants p0/p1/p2, structured output, chain tasks | [EXPERIMENT-003](eval/EXPERIMENT-003.md) |
 | Phase 3 | Correctness-checker fixes, ReAct robustness, subagent leakage, parallel classification, degenerate baseline + full retest | [EXPERIMENT-004](eval/EXPERIMENT-004.md) |
-| v2 | Expanded measurement surface: longdoc evaluation category, parallel subagent, LLM-as-judge, classification stability (confidence) | [#34](https://github.com/justlearner010/adaptive-agent-runtime-lab/pull/34), report pending |
-| v3+ | Conclusion attribution and statistical testing (planned) / hard tasks / real tools / learned Policy | Roadmap, not started |
+| v2 | Expanded measurement surface: longdoc evaluation category (real long-document tasks), parallel subagent, LLM-as-judge, classification stability (confidence), LLM-layer empty-output retry | [#34](https://github.com/justlearner010/adaptive-agent-runtime-lab/pull/34) |
+| **v3 (in progress)** | **"When does SubAgent surpass ReAct" boundary evidence**: power analysis, multi-scale longdoc, parallel-structure comparison, hyperparameter sensitivity, trace process evidence | Design finalized in [v3-design.md](v3-design.md); P2 infrastructure in progress |
+| v4+ | Task-form expansion (retrieval / selective reading), difficulty tasks, multi-model, learned Policy | Roadmap, not started |
 
-### Tentative Conclusions (as of EXPERIMENT-004, single model deepseek-v4-flash)
+**Current status**: v3 is in experiment design — first a cost-power analysis (conclusion: N=5 can only resolve ±6-14pp, "majority vote + McNemar" no longer works; switching to per-task accuracy + paired t-test), with three budget tiers of ¥12-50 to choose from.
+
+### Tentative Conclusions (as of the full EXPERIMENT-004 run + v2 smoke test, single model deepseek-v4-flash)
 
 1. **direct's applicability domain is far wider than intuition suggests**: except for corpus search, all categories score 95~100% correct with only 1 call —
    **"direct by default" is the optimal baseline** (it is the `optimal` for 31/40 tasks).
 2. **react is necessary only when external information is needed**: 95% on corpus-search tasks vs. direct's 0%; using it on other tasks is pure waste.
-3. **subagent is the most expensive and offers no advantage on this evaluation set**: 8.5 calls/23.7s on search tasks, 46.9s on subagent tasks;
-   its true applicability domain (long-document chunking, parallel research, context isolation) is **not yet covered** by the evaluation set, so its value remains unproven.
+3. **subagent is the most expensive and offers no advantage on the old evaluation set** (8.5 calls / 23.7s on search tasks) — but the old evaluation set had no tasks that truly require
+   long-document chunking. **v2 has filled this gap**: the longdoc task category + parallel workers, and the smoke test confirms the mechanism works
+   (the planner can decompose by page, workers read in parallel, and the synthesis is correct); **"under what conditions subagent starts to surpass react"
+   is exactly the question v3 is testing** ([v3-design.md](v3-design.md)).
 4. **LLM classification is high quality when it succeeds** (p0 majority-vote agreement 92.5%, 15pp above the always-direct baseline),
    but **classification is unstable on some tasks** (e.g., large-number multiplication math-02 has only a 20% classification success rate); the rule-based fallback is nearly useless (32.5%).
 5. **The model significantly affects results**: after deepseek-chat -> v4-flash, overall correctness rose; conclusions must be verified with a fixed model.
+6. **Reasoning models need token headroom**: deepseek-v4-flash returns **empty outputs** when max_tokens is too tight;
+   fixed (LLM-layer empty-output retry + raising max_tokens everywhere) — the most valuable finding from the v2 smoke test.
 
 > The above are **interim conclusions**, not final verdicts. Any change in model / evaluation set / correctness checker may rewrite them.
 
@@ -117,27 +139,43 @@ Switching to DeepSeek / Moonshot / a local vLLM only requires changing base_url 
 
 ```
 main.py            CLI entry point
-llm.py             minimal wrapper around OpenAI-compatible endpoints (chat / chat_json)
-task_analyzer.py   Policy layer: LLM classification + rule fallback (HybridPolicy)
+llm.py             minimal wrapper around OpenAI-compatible endpoints (chat / chat_json, with empty-output retry)
+task_analyzer.py   Policy layer: LLM classification (with confidence) + rule fallback (HybridPolicy)
 router.py          Policy -> Executor dispatch
 executors/
   direct.py        single call
   react.py         ReAct loop (JSON Action protocol)
-  subagent.py      decompose -> isolated-context subagents -> synthesize
+  subagent.py      decompose -> parallel subagents -> synthesize (workers run in parallel since v2)
 tools/
   calculator.py    AST-whitelist safe calculator
   search.py        v1 local-corpus placeholder (real search API later)
+  doc.py           v2 long-document tool (deterministic synthetic documents + paged reading)
+eval/              evaluation harness (runner / report / judge / tasks.json / experiment reports)
 trace.py           structured trace (strategy / LLM / tools / latency)
+v3-design.md       current experiment design (v3)
+AGENTS.md          experiment design decision context (required reading for collaborators)
 ```
+
+## Documentation Navigation
+
+| Document | Content | Audience |
+|---|---|---|
+| [README.md](README.md) | This file: positioning / quick start / current status | Everyone |
+| [RESEARCH.md](RESEARCH.md) | Background research: Agent Runtime mechanisms, execution strategy taxonomy | Those who want to understand "why" |
+| [eval/EXPERIMENT-001..004](eval/EXPERIMENT-001.md) | Experiment history: four rounds of evaluation and fixes (bilingual CN/EN) | Those who want to reproduce/cite results |
+| [v3-design.md](v3-design.md) | Current experiment design: when does SubAgent surpass ReAct | Those involved in v3 |
+| [AGENTS.md](AGENTS.md) | Experiment design decision context, contribution checks, decision log | All collaborators (including agents) |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Collaboration process: Issue -> PR -> Review | Those who want to propose changes |
 
 ## Design Highlights
 
-- **Policy layer**: `LLMPolicy` (a single LLM call outputs a JSON classification) takes priority, with `RulePolicy` (keyword heuristics) as the fallback.
+- **Policy layer**: `LLMPolicy` (a single LLM call outputs a JSON classification + confidence) takes priority, with `RulePolicy` (keyword heuristics) as the fallback.
   It degrades automatically on classification failure or offline use, and everything is recorded in the trace.
-- **ReAct protocol**: the model outputs an `Action: {"tool": ..., "input": ...}` JSON, which the runtime parses, executes, and fills back into Observation.
-- **Subagent (v1 simplified)**: planner splits subtasks -> each subtask runs in its own ReAct context -> synthesizer assembles the result.
-  Subtask contexts are isolated from the main context and do not pollute the main token budget.
-- **Trace first**: all trace data prepares for the later "multi-strategy comparison on the same task set" and the "learned Policy".
+- **ReAct protocol**: the model outputs an `Action: {"tool": ..., "input": ...}` JSON, which the runtime parses with bracket awareness, executes, and fills back into Observation.
+- **Subagent**: planner splits subtasks -> each subtask runs in its own ReAct context (**workers in parallel since v2**) -> synthesizer assembles the result.
+  Subtask contexts are isolated from the main context and do not pollute the main token budget; on empty synthesis it falls back with the internal prompt stripped out.
+- **Toolset**: calculator (safe arithmetic) / search (local-corpus placeholder) / doc (v2 long-document paging, for the longdoc evaluation category).
+- **Trace first**: all trace data prepares for the later "multi-strategy comparison on the same task set" and the "learned Policy"; starting from v3, process evidence is added (parent-context tokens, decomposition granularity, worker omissions).
 
 ## Collaboration Process (Important)
 
