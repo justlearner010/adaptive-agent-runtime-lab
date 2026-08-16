@@ -1,5 +1,7 @@
 # 实验报告 004：判定器修复 + 并行化后的全量重测（Phase 3）
 
+> [English](EXPERIMENT-004.en.md) | 中文
+
 > 状态：待复核
 > 日期：2026-08-14
 > 模型：deepseek-v4-flash（DeepSeek，OpenAI 兼容端点；⚠️ 与 001–003 的 deepseek-chat 不同，见 §3）

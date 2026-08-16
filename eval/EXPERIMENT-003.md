@@ -1,5 +1,7 @@
 # 实验报告 003：策略可靠性专项（定义工程 + 结构化输出 + 思维链任务）
 
+> [English](EXPERIMENT-003.en.md) | 中文
+
 > 状态：待复核
 > 日期：2026-08-13
 > 模型：deepseek-chat（DeepSeek）

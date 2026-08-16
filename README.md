@@ -1,5 +1,7 @@
 # Adaptive Agent Runtime Lab
 
+> [English](README.en.md) | 中文
+
 探索 Agent 运行时如何根据任务类型选择不同的执行策略（Execution Strategy）。
 
 核心管线：**Task -> Policy -> Execution Strategy**
