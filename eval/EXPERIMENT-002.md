@@ -1,5 +1,7 @@
 # 实验报告 002：多采样评测（N=5）
 
+> [English](EXPERIMENT-002.en.md) | 中文
+
 > 状态：待复核
 > 日期：2026-08-13
 > 模型：deepseek-chat（DeepSeek）

@@ -1,5 +1,7 @@
 # 实验报告 001：策略选择基准（Strategy Eval）
 
+> [English](EXPERIMENT-001.en.md) | 中文
+
 > 状态：v1 实验，待复核
 > 日期：2026-08-13
 > 模型：deepseek-chat（DeepSeek，OpenAI 兼容端点）
